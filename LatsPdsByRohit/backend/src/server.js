@@ -1,26 +1,25 @@
 const express = require('express');
-const dotenv = require('dotenv');
 const cors = require('cors');
 const helmet = require('helmet');
 const morgan = require('morgan');
 const connectDB = require('./config/db');
+const env = require('./config/env');
 const { errorHandler, notFound } = require('./middlewares/errorMiddleware');
-
-// Load env vars
-dotenv.config();
+const { authRateLimiter } = require('./middlewares/rateLimitMiddleware');
+const logger = require('./utils/logger');
 
 // Connect to database
 connectDB();
 
 const app = express();
-const allowedOrigins = (process.env.FRONTEND_URL || process.env.CORS_ORIGIN || '')
+const allowedOrigins = (env.FRONTEND_URL || '')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
 
 const corsOptions = {
   origin(origin, callback) {
-    if (!origin || !allowedOrigins.length || allowedOrigins.includes(origin)) {
+    if (!origin || allowedOrigins.includes(origin)) {
       callback(null, true);
       return;
     }
@@ -33,19 +32,24 @@ const corsOptions = {
 // Middlewares
 app.use(express.json());
 app.use(cors(corsOptions));
-app.use(helmet());
+app.use(helmet({
+  crossOriginEmbedderPolicy: false,
+  contentSecurityPolicy: false,
+  referrerPolicy: { policy: 'no-referrer' },
+}));
 
-if (process.env.NODE_ENV === 'development') {
+if (env.NODE_ENV === 'development') {
   app.use(morgan('dev'));
 }
 
 // Routes
-app.use('/api/auth', require('./routes/userRoutes'));
+app.use('/api/auth', authRateLimiter, require('./routes/userRoutes'));
 app.use('/api/users', require('./routes/userRoutes'));
 app.use('/api/allocations', require('./routes/allocationRoutes'));
 app.use('/api/transactions', require('./routes/transactionRoutes'));
 app.use('/api/shops', require('./routes/shopRoutes'));
 app.use('/api/grievances', require('./routes/grievanceRoutes'));
+app.use('/api/admin', require('./routes/adminRoutes'));
 
 // Root route
 app.get('/', (req, res) => {
@@ -56,6 +60,11 @@ app.get('/', (req, res) => {
 app.use(notFound);
 app.use(errorHandler);
 
-const PORT = process.env.PORT || 5000;
+const PORT = env.PORT;
 
-app.listen(PORT);
+app.listen(PORT, () => {
+  logger.info('server_started', {
+    port: PORT,
+    environment: env.NODE_ENV,
+  });
+});

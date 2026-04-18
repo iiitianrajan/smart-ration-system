@@ -1,11 +1,14 @@
 import { useEffect, useMemo, useState } from 'react'
-import { toast } from 'sonner'
-import { API_BASE_URL } from '../../config'
+import toast from 'react-hot-toast'
+import { Link } from 'react-router-dom'
+import { apiClient } from '../../lib/apiClient'
+import { DASHBOARD_SETTINGS_ROUTE } from '../../constants/routes'
 import { useAuth } from '../../context/AuthContext'
 import { isDealerRole } from '../../utils/roles'
 import InlineSpinner from '../../components/ui/InlineSpinner'
 import { EmptyState, PageLoader } from '../../components/ui/PageState'
-import { getErrorMessage, readJsonSafely } from '../../utils/api'
+import { getApiErrorMessage } from '../../utils/api'
+import { copyToClipboard, downloadCsv } from '../../utils/actions'
 
 function formatDateTime(dateValue) {
   const date = new Date(dateValue)
@@ -45,6 +48,8 @@ export default function TransactionHistoryPage() {
   const [isSubmitting, setIsSubmitting] = useState(false)
   const [submitError, setSubmitError] = useState('')
   const [submitSuccess, setSubmitSuccess] = useState('')
+  const [statusFilter, setStatusFilter] = useState('ALL')
+  const [isNewestFirst, setIsNewestFirst] = useState(true)
 
   const canCreateTransactions = isDealerRole(user?.role)
 
@@ -53,21 +58,10 @@ export default function TransactionHistoryPage() {
     setError('')
 
     try {
-      const response = await fetch(`${API_BASE_URL}/transactions/my`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
-
-      const data = await readJsonSafely(response)
-
-      if (!response.ok) {
-        throw new Error(getErrorMessage(data, 'Unable to load your transactions.'))
-      }
-
-      setTransactions(Array.isArray(data) ? data : [])
+      const response = await apiClient.get('/transactions/my')
+      setTransactions(Array.isArray(response.data) ? response.data : [])
     } catch (requestError) {
-      const nextError = requestError.message || 'Unable to load your transactions.'
+      const nextError = getApiErrorMessage(requestError, 'Unable to load your transactions.')
       setError(nextError)
       toast.error(nextError)
     } finally {
@@ -89,26 +83,16 @@ export default function TransactionHistoryPage() {
       }
 
       try {
-        const response = await fetch(`${API_BASE_URL}/users/customers`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        })
-
-        const data = await readJsonSafely(response)
-
-        if (!response.ok) {
-          throw new Error(getErrorMessage(data, 'Unable to load users for transaction entry.'))
-        }
+        const response = await apiClient.get('/users/customers')
 
         if (isActive) {
-          const nextCustomers = Array.isArray(data) ? data : []
+          const nextCustomers = Array.isArray(response.data) ? response.data : []
           setCustomers(nextCustomers)
           setSelectedUserId((currentValue) => currentValue || nextCustomers[0]?._id || '')
         }
       } catch (requestError) {
         if (isActive) {
-          const nextError = requestError.message || 'Unable to load users for transaction entry.'
+          const nextError = getApiErrorMessage(requestError, 'Unable to load users for transaction entry.')
           setSubmitError(nextError)
           toast.error(nextError)
         }
@@ -147,28 +131,15 @@ export default function TransactionHistoryPage() {
     setIsSubmitting(true)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/transactions`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          userId: selectedUserId,
-          itemsCollected: [
-            {
-              itemType: selectedItemType,
-              quantity: normalizedQuantity,
-            },
-          ],
-        }),
+      await apiClient.post('/transactions', {
+        userId: selectedUserId,
+        itemsCollected: [
+          {
+            itemType: selectedItemType,
+            quantity: normalizedQuantity,
+          },
+        ],
       })
-
-      const data = await readJsonSafely(response)
-
-      if (!response.ok) {
-        throw new Error(getErrorMessage(data, 'Unable to create the transaction.'))
-      }
 
       setQuantity('')
       setSelectedUserId((currentValue) => currentValue || customers[0]?._id || '')
@@ -177,7 +148,7 @@ export default function TransactionHistoryPage() {
       toast.success('Transaction recorded successfully.')
       await loadTransactions()
     } catch (requestError) {
-      const nextError = requestError.message || 'Unable to create the transaction.'
+      const nextError = getApiErrorMessage(requestError, 'Unable to create the transaction.')
       setSubmitError(nextError)
       toast.error(nextError)
     } finally {
@@ -195,6 +166,55 @@ export default function TransactionHistoryPage() {
         : 'No Activity Yet',
     }
   }, [transactions])
+
+  const filteredTransactions = useMemo(() => {
+    const nextTransactions = [...transactions]
+      .filter((transaction) => {
+        if (statusFilter === 'ALL') {
+          return true
+        }
+
+        return getStatusLabel(transaction) === statusFilter
+      })
+      .sort((left, right) => {
+        const leftTime = new Date(left.transactionDate).getTime()
+        const rightTime = new Date(right.transactionDate).getTime()
+        return isNewestFirst ? rightTime - leftTime : leftTime - rightTime
+      })
+
+    return nextTransactions
+  }, [isNewestFirst, statusFilter, transactions])
+
+  function handleExportTransactions() {
+    if (!filteredTransactions.length) {
+      toast.error('No transactions are available to export.')
+      return
+    }
+
+    downloadCsv(
+      'transaction-history.csv',
+      ['Receipt ID', 'Date', 'Shop', 'Items', 'Status'],
+      filteredTransactions.map((transaction) => [
+        transaction.receiptId || transaction._id,
+        formatDateTime(transaction.transactionDate).date,
+        transaction.shop?.name || 'Unknown Shop',
+        (transaction.itemsCollected || [])
+          .map((item) => `${item.quantity} ${item.itemType}`)
+          .join('; '),
+        getStatusLabel(transaction),
+      ]),
+    )
+    toast.success('Transaction history exported.')
+  }
+
+  async function handleViewReceipt(transaction) {
+    try {
+      await copyToClipboard(transaction.receiptId || transaction._id)
+      toast.success('Receipt ID copied to clipboard.')
+    } catch {
+      toast.error('Unable to copy the receipt ID right now.')
+    }
+  }
 
   return (
     <div className="max-w-6xl">
@@ -311,21 +331,43 @@ export default function TransactionHistoryPage() {
       <div className="rounded-2xl border border-surface bg-surface-container-lowest shadow-sm mb-8">
         <div className="flex flex-col border-b border-surface p-4 sm:flex-row sm:items-center sm:justify-between gap-4">
           <div className="flex gap-2">
-            <button className="rounded-lg bg-primary px-4 py-2 text-xs font-bold text-on-primary">All Transactions</button>
-            <button className="rounded-lg bg-transparent px-4 py-2 text-xs font-bold text-on-surface-variant hover:bg-surface">Pending</button>
-            <button className="rounded-lg bg-transparent px-4 py-2 text-xs font-bold text-on-surface-variant hover:bg-surface">Verified</button>
-            <button className="rounded-lg bg-transparent px-4 py-2 text-xs font-bold text-on-surface-variant hover:bg-surface">Flagged</button>
+            {[
+              ['ALL', 'All Transactions'],
+              ['PROCESSING', 'Pending'],
+              ['VERIFIED', 'Verified'],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                className={`rounded-lg px-4 py-2 text-xs font-bold ${
+                  statusFilter === value
+                    ? 'bg-primary text-on-primary'
+                    : 'bg-transparent text-on-surface-variant hover:bg-surface'
+                }`}
+                onClick={() => setStatusFilter(value)}
+                type="button"
+              >
+                {label}
+              </button>
+            ))}
           </div>
           <div className="flex gap-2">
-            <button className="flex h-10 w-10 items-center justify-center rounded-lg border border-surface text-on-surface-variant hover:bg-surface">
+            <button
+              className="flex h-10 w-10 items-center justify-center rounded-lg border border-surface text-on-surface-variant hover:bg-surface"
+              onClick={() => setIsNewestFirst((currentValue) => !currentValue)}
+              type="button"
+            >
               <span className="material-symbols-outlined text-[18px]">calendar_today</span>
             </button>
-            <button className="flex h-10 w-10 items-center justify-center rounded-lg border border-surface text-on-surface-variant hover:bg-surface">
+            <button
+              className="flex h-10 w-10 items-center justify-center rounded-lg border border-surface text-on-surface-variant hover:bg-surface"
+              onClick={handleExportTransactions}
+              type="button"
+            >
               <span className="material-symbols-outlined text-[18px]">download</span>
             </button>
           </div>
         </div>
-        
+
         {isLoading ? (
           <div className="p-6">
             <PageLoader
@@ -352,8 +394,8 @@ export default function TransactionHistoryPage() {
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-surface">
-                  {transactions.length ? (
-                    transactions.map((transaction) => {
+                  {filteredTransactions.length ? (
+                    filteredTransactions.map((transaction) => {
                       const formatted = formatDateTime(transaction.transactionDate)
                       const status = getStatusLabel(transaction)
 
@@ -397,7 +439,11 @@ export default function TransactionHistoryPage() {
                             </span>
                           </td>
                           <td className="px-6 py-5 text-right">
-                            <button className="text-xs font-bold text-primary hover:underline">
+                            <button
+                              className="text-xs font-bold text-primary hover:underline"
+                              onClick={() => handleViewReceipt(transaction)}
+                              type="button"
+                            >
                               View Receipt
                             </button>
                           </td>
@@ -420,15 +466,27 @@ export default function TransactionHistoryPage() {
                 </tbody>
               </table>
             </div>
-            
+
             <div className="flex items-center justify-between border-t border-surface px-6 py-4">
               <p className="text-[10px] font-bold uppercase tracking-widest text-on-surface-variant">
                 Showing {transactions.length} transaction{transactions.length === 1 ? '' : 's'}
               </p>
               <div className="flex gap-1">
-                <button className="flex h-8 w-8 items-center justify-center rounded bg-surface-container text-on-surface-variant hover:bg-surface-variant"><span className="material-symbols-outlined text-[16px]">chevron_left</span></button>
-                <button className="flex h-8 w-8 items-center justify-center rounded bg-primary text-on-primary font-bold">1</button>
-                <button className="flex h-8 w-8 items-center justify-center rounded bg-surface-container text-on-surface-variant hover:bg-surface-variant"><span className="material-symbols-outlined text-[16px]">chevron_right</span></button>
+                <button
+                  className="flex h-8 w-8 items-center justify-center rounded bg-surface-container text-on-surface-variant hover:bg-surface-variant"
+                  onClick={() => toast('All matching transactions are already shown on this page.')}
+                  type="button"
+                >
+                  <span className="material-symbols-outlined text-[16px]">chevron_left</span>
+                </button>
+                <button className="flex h-8 w-8 items-center justify-center rounded bg-primary font-bold text-on-primary" type="button">1</button>
+                <button
+                  className="flex h-8 w-8 items-center justify-center rounded bg-surface-container text-on-surface-variant hover:bg-surface-variant"
+                  onClick={() => toast('All matching transactions are already shown on this page.')}
+                  type="button"
+                >
+                  <span className="material-symbols-outlined text-[16px]">chevron_right</span>
+                </button>
               </div>
             </div>
           </>
@@ -444,12 +502,16 @@ export default function TransactionHistoryPage() {
               Your transaction history below is fetched directly from the ration distribution ledger.
               Dates, quantities, and shops are shown exactly as recorded.
             </p>
-            <button className="rounded bg-white px-6 py-3 text-xs font-bold uppercase tracking-widest text-primary hover:bg-slate-100">
+            <button
+              className="rounded bg-white px-6 py-3 text-xs font-bold uppercase tracking-widest text-primary hover:bg-slate-100"
+              onClick={handleExportTransactions}
+              type="button"
+            >
               Download Annual Report
             </button>
           </div>
         </div>
-        
+
         <div className="rounded-2xl border border-surface bg-surface-container-lowest p-8 shadow-sm">
           <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-surface-container text-primary mb-4">
             <span className="material-symbols-outlined">verified</span>
@@ -459,9 +521,9 @@ export default function TransactionHistoryPage() {
             Every collected item displayed above includes the quantity recorded against your account
             for that transaction.
           </p>
-          <button className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-primary hover:underline">
+          <Link className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest text-primary hover:underline" to={DASHBOARD_SETTINGS_ROUTE}>
             Security Settings <span className="material-symbols-outlined text-[14px]">arrow_forward</span>
-          </button>
+          </Link>
         </div>
       </div>
     </div>

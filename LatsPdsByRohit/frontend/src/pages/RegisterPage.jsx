@@ -1,15 +1,16 @@
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { toast } from 'sonner'
-import { API_BASE_URL } from '../config'
+import toast from 'react-hot-toast'
 import { useAuth } from '../context/AuthContext'
+import { useLanguage } from '../context/LanguageContext'
 import { DASHBOARD_OVERVIEW_ROUTE, HOME_ROUTE, SIGN_IN_ROUTE } from '../constants/routes'
 import InlineSpinner from '../components/ui/InlineSpinner'
-import { getErrorMessage, readJsonSafely } from '../utils/api'
+import { getApiErrorMessage } from '../utils/api'
 
 export default function RegisterPage() {
   const navigate = useNavigate()
-  const { setAuthSession } = useAuth()
+  const { register } = useAuth()
+  const { t } = useLanguage()
   const [name, setName] = useState('')
   const [aadharNumber, setAadharNumber] = useState('')
   const [phone, setPhone] = useState('')
@@ -88,38 +89,12 @@ export default function RegisterPage() {
     setValidationError('')
 
     try {
-      const registerResponse = await fetch(`${API_BASE_URL}/auth/register`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          name: name.trim(),
-          phone,
-          password,
-          aadharNumber,
-        }),
+      await register({
+        name: name.trim(),
+        phone,
+        password,
+        aadharNumber,
       })
-
-      const registerData = await readJsonSafely(registerResponse)
-
-      if (!registerResponse.ok) {
-        throw new Error(getErrorMessage(registerData, 'Unable to create your account.'))
-      }
-
-      const profileResponse = await fetch(`${API_BASE_URL}/users/profile`, {
-        headers: {
-          Authorization: `Bearer ${registerData.token}`,
-        },
-      })
-
-      const profileData = await readJsonSafely(profileResponse)
-
-      if (!profileResponse.ok) {
-        throw new Error(getErrorMessage(profileData, 'Unable to load your profile.'))
-      }
-
-      setAuthSession(registerData.token, profileData)
       setName('')
       setAadharNumber('')
       setPhone('')
@@ -128,7 +103,7 @@ export default function RegisterPage() {
       toast.success('Account created successfully.')
       navigate(DASHBOARD_OVERVIEW_ROUTE, { replace: true })
     } catch (requestError) {
-      const nextError = requestError.message || 'Unable to create your account.'
+      const nextError = getApiErrorMessage(requestError, 'Unable to create your account.')
       setValidationError(nextError)
       toast.error(nextError)
     } finally {
@@ -153,15 +128,14 @@ export default function RegisterPage() {
           <div className="relative z-10">
             <div className="mb-12">
               <span className="text-3xl font-black uppercase tracking-tighter text-on-primary">
-                RationSmart
+                {t('register.brand')}
               </span>
             </div>
             <h1 className="mb-6 text-6xl font-black leading-none tracking-tighter text-on-primary">
-              Securing the <br />Public Record.
+              {t('register.heroTitle')}
             </h1>
             <p className="max-w-md text-xl font-medium text-on-primary-container">
-              Join the digital infrastructure for transparent resource distribution. An immutable
-              gateway to civic integrity.
+              {t('register.heroDescription')}
             </p>
           </div>
           <div className="relative z-10 grid grid-cols-1 gap-8">
@@ -170,9 +144,9 @@ export default function RegisterPage() {
                 verified_user
               </span>
               <div>
-                <h3 className="text-lg font-bold leading-tight text-on-primary">Identity Verification</h3>
+                <h3 className="text-lg font-bold leading-tight text-on-primary">{t('register.identityVerification')}</h3>
                 <p className="text-sm text-on-primary-container">
-                  Secure Aadhaar-linked registration for authentic user access.
+                  {t('register.identityVerificationDesc')}
                 </p>
               </div>
             </div>
@@ -181,9 +155,9 @@ export default function RegisterPage() {
                 account_balance
               </span>
               <div>
-                <h3 className="text-lg font-bold leading-tight text-on-primary">Institutional Trust</h3>
+                <h3 className="text-lg font-bold leading-tight text-on-primary">{t('register.institutionalTrust')}</h3>
                 <p className="text-sm text-on-primary-container">
-                  Direct oversight and end-to-end transparency in rationing systems.
+                  {t('register.institutionalTrustDesc')}
                 </p>
               </div>
             </div>
@@ -195,13 +169,13 @@ export default function RegisterPage() {
           <div className="w-full max-w-md space-y-12">
             <div className="mb-8 text-center lg:hidden">
               <span className="text-2xl font-black uppercase tracking-tighter text-primary">
-                RationSmart
+                {t('register.brand')}
               </span>
             </div>
             <div className="space-y-2">
-              <h2 className="text-4xl font-black tracking-tight text-primary">Create Account</h2>
+              <h2 className="text-4xl font-black tracking-tight text-primary">{t('register.createAccount')}</h2>
               <p className="font-medium text-on-surface-variant">
-                Initialize your user profile for the smart registry.
+                {t('register.subtitle')}
               </p>
             </div>
 
@@ -209,13 +183,13 @@ export default function RegisterPage() {
               <div className="grid grid-cols-1 gap-6">
                 <div className="space-y-2">
                   <label className="block text-xs font-black uppercase tracking-widest text-on-surface-variant">
-                    Full Name
+                    {t('register.fullName')}
                   </label>
                   <div className="relative">
                     <input
                       className="w-full rounded-lg border-none bg-surface-container-highest p-4 text-on-surface placeholder:text-outline transition-all duration-300 focus:bg-surface-container-lowest focus:ring-0"
                       onChange={handleNameChange}
-                      placeholder="Enter as per Aadhaar card"
+                      placeholder={t('register.fullNamePlaceholder')}
                       type="text"
                       value={name}
                     />
@@ -225,7 +199,7 @@ export default function RegisterPage() {
 
                 <div className="space-y-2">
                   <label className="block text-xs font-black uppercase tracking-widest text-on-surface-variant">
-                    Aadhar Number
+                    {t('register.aadharNumber')}
                   </label>
                   <div className="relative">
                     <input
@@ -233,7 +207,7 @@ export default function RegisterPage() {
                       inputMode="numeric"
                       maxLength={12}
                       onChange={handleAadharChange}
-                      placeholder="XXXX XXXX XXXX"
+                      placeholder={t('register.aadharPlaceholder')}
                       disabled={isSubmitting}
                       type="text"
                       value={aadharNumber}
@@ -244,7 +218,7 @@ export default function RegisterPage() {
 
                 <div className="space-y-2">
                   <label className="block text-xs font-black uppercase tracking-widest text-on-surface-variant">
-                    Mobile Number
+                    {t('register.mobileNumber')}
                   </label>
                   <div className="relative">
                     <input
@@ -252,7 +226,7 @@ export default function RegisterPage() {
                       inputMode="numeric"
                       maxLength={10}
                       onChange={handlePhoneChange}
-                      placeholder="+91 00000 00000"
+                      placeholder={t('register.mobilePlaceholder')}
                       disabled={isSubmitting}
                       type="tel"
                       value={phone}
@@ -263,14 +237,14 @@ export default function RegisterPage() {
 
                 <div className="space-y-2">
                   <label className="block text-xs font-black uppercase tracking-widest text-on-surface-variant">
-                    Password
+                    {t('register.password')}
                   </label>
                   <div className="relative">
                     <input
                       className="w-full rounded-lg border-none bg-surface-container-highest p-4 text-on-surface placeholder:text-outline transition-all duration-300 focus:bg-surface-container-lowest focus:ring-0"
                       disabled={isSubmitting}
                       onChange={handlePasswordChange}
-                      placeholder="Create a secure password"
+                      placeholder={t('register.passwordPlaceholder')}
                       type="password"
                       value={password}
                     />
@@ -289,13 +263,13 @@ export default function RegisterPage() {
                   type="checkbox"
                 />
                 <label className="text-sm leading-relaxed text-on-surface-variant" htmlFor="terms">
-                  I acknowledge that my data will be processed according to the{' '}
+                  {t('register.termsTextStart')}{' '}
                   <Link className="font-bold text-primary hover:underline" to={HOME_ROUTE}>
-                    Privacy Policy
+                    {t('footer.privacy')}
                   </Link>{' '}
-                  and I agree to the{' '}
+                  {t('register.termsTextMiddle')}{' '}
                   <Link className="font-bold text-primary hover:underline" to={HOME_ROUTE}>
-                    Terms of Service
+                    {t('footer.terms')}
                   </Link>
                   .
                 </label>
@@ -313,11 +287,11 @@ export default function RegisterPage() {
                 {isSubmitting ? (
                   <>
                     <InlineSpinner />
-                    Creating Account...
+                    {t('register.createAccountLoading')}
                   </>
                 ) : (
                   <>
-                    Create Account
+                    {t('register.createAccount')}
                     <span className="material-symbols-outlined">arrow_forward</span>
                   </>
                 )}
@@ -325,9 +299,9 @@ export default function RegisterPage() {
 
               <div className="pt-4 text-center">
                 <p className="font-medium text-on-surface-variant">
-                  Already have an account?{' '}
+                  {t('register.alreadyHaveAccount')}{' '}
                   <Link className="font-bold text-primary hover:underline" to={SIGN_IN_ROUTE}>
-                    Sign In
+                    {t('register.signIn')}
                   </Link>
                 </p>
               </div>
@@ -339,7 +313,7 @@ export default function RegisterPage() {
       <footer className="flex w-full flex-col items-center justify-between gap-4 bg-slate-100 px-8 py-12 md:flex-row dark:bg-slate-950">
         <div className="flex items-center gap-2">
           <span className="text-xs font-bold uppercase tracking-widest text-slate-900 dark:text-slate-100">
-            RationSmart
+            {t('register.brand')}
           </span>
           <span className="text-xs uppercase tracking-widest text-slate-500 dark:text-slate-400">
             Â© 2024 Smart Ration Transparency Authority. An Immutable Public Record.
@@ -347,16 +321,16 @@ export default function RegisterPage() {
         </div>
         <div className="flex gap-8">
           <Link className="text-xs uppercase tracking-widest text-slate-500 transition-colors hover:text-blue-800 dark:text-slate-400" to={HOME_ROUTE}>
-            Privacy Policy
+            {t('footer.privacy')}
           </Link>
           <Link className="text-xs uppercase tracking-widest text-slate-500 transition-colors hover:text-blue-800 dark:text-slate-400" to={HOME_ROUTE}>
-            Terms of Service
+            {t('footer.terms')}
           </Link>
           <Link className="text-xs uppercase tracking-widest text-slate-500 transition-colors hover:text-blue-800 dark:text-slate-400" to={HOME_ROUTE}>
-            Accessibility
+            {t('register.accessibility')}
           </Link>
           <Link className="text-xs uppercase tracking-widest text-slate-500 transition-colors hover:text-blue-800 dark:text-slate-400" to={HOME_ROUTE}>
-            Audit Log
+            {t('register.auditLog')}
           </Link>
         </div>
       </footer>

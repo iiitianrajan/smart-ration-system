@@ -1,16 +1,17 @@
 import { useState } from 'react'
 import { Link, useLocation, useNavigate } from 'react-router-dom'
-import { toast } from 'sonner'
-import { API_BASE_URL } from '../config'
+import toast from 'react-hot-toast'
 import { useAuth } from '../context/AuthContext'
+import { useLanguage } from '../context/LanguageContext'
 import { DASHBOARD_OVERVIEW_ROUTE, HOME_ROUTE, REGISTER_ROUTE } from '../constants/routes'
 import InlineSpinner from '../components/ui/InlineSpinner'
-import { getErrorMessage, readJsonSafely } from '../utils/api'
+import { getApiErrorMessage } from '../utils/api'
 
 export default function SignInPage() {
   const navigate = useNavigate()
   const location = useLocation()
-  const { setAuthSession } = useAuth()
+  const { login } = useAuth()
+  const { selectedLanguage, setLanguage, supportedLanguages, t } = useLanguage()
   const [phone, setPhone] = useState('')
   const [password, setPassword] = useState('')
   const [validationError, setValidationError] = useState('')
@@ -62,42 +63,16 @@ export default function SignInPage() {
     setValidationError('')
 
     try {
-      const loginResponse = await fetch(`${API_BASE_URL}/auth/login`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          phone,
-          password,
-        }),
+      const profile = await login({
+        phone,
+        password,
       })
-
-      const loginData = await readJsonSafely(loginResponse)
-
-      if (!loginResponse.ok) {
-        throw new Error(getErrorMessage(loginData, 'Unable to sign in. Please try again.'))
-      }
-
-      const profileResponse = await fetch(`${API_BASE_URL}/users/profile`, {
-        headers: {
-          Authorization: `Bearer ${loginData.token}`,
-        },
-      })
-
-      const profileData = await readJsonSafely(profileResponse)
-
-      if (!profileResponse.ok) {
-        throw new Error(getErrorMessage(profileData, 'Unable to load your profile.'))
-      }
-
-      setAuthSession(loginData.token, profileData)
-      toast.success(`Welcome back, ${profileData.name || 'User'}.`)
+      toast.success(`Welcome back, ${profile.name || 'User'}.`)
 
       const nextRoute = location.state?.from?.pathname || DASHBOARD_OVERVIEW_ROUTE
       navigate(nextRoute, { replace: true })
     } catch (requestError) {
-      const nextError = requestError.message || 'Invalid phone or password.'
+      const nextError = getApiErrorMessage(requestError, 'Invalid phone or password.')
       setValidationError(nextError)
       toast.error(nextError)
     } finally {
@@ -106,6 +81,17 @@ export default function SignInPage() {
   }
 
   const isIdentifierValid = phone.length === 10 && password.length > 0
+
+  function handleLanguageInfo() {
+    const currentIndex = supportedLanguages.findIndex((language) => language.code === selectedLanguage.code)
+    const nextLanguage = supportedLanguages[(currentIndex + 1) % supportedLanguages.length]
+    setLanguage(nextLanguage.code)
+    toast.success(`${nextLanguage.label} selected.`)
+  }
+
+  function handleHelpInfo() {
+    toast('Use your registered phone number and password to sign in.')
+  }
 
   return (
     <main className="min-h-screen bg-surface pt-24 pb-12 px-6 text-on-surface">
@@ -123,10 +109,19 @@ export default function SignInPage() {
             </div>
           </Link>
           <div className="flex items-center gap-4 text-slate-500">
-            <button className="inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors hover:bg-slate-200/70 hover:text-blue-900" type="button">
+            <button
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors hover:bg-slate-200/70 hover:text-blue-900"
+              aria-label={`Language: ${selectedLanguage.label}`}
+              onClick={handleLanguageInfo}
+              type="button"
+            >
               <span className="material-symbols-outlined">language</span>
             </button>
-            <button className="inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors hover:bg-slate-200/70 hover:text-blue-900" type="button">
+            <button
+              className="inline-flex h-10 w-10 items-center justify-center rounded-full transition-colors hover:bg-slate-200/70 hover:text-blue-900"
+              onClick={handleHelpInfo}
+              type="button"
+            >
               <span className="material-symbols-outlined">help_outline</span>
             </button>
           </div>
@@ -145,27 +140,26 @@ export default function SignInPage() {
           <div className="absolute inset-0 bg-gradient-to-t from-primary via-primary/50 to-transparent" />
           <div className="relative z-10 max-w-sm text-on-primary">
             <p className="mb-4 text-xs font-bold uppercase tracking-[0.2em] text-on-primary-container">
-              Official Portal
+              {t('signIn.officialPortal')}
             </p>
             <h1 className="mb-6 text-4xl font-black leading-tight tracking-tight">
-              Securing digital sovereignty.
+              {t('signIn.heroTitle')}
             </h1>
             <p className="text-base leading-relaxed text-on-primary-container">
-              Access the Smart Ration Transparency System. An immutable record of public trust and
-              resource distribution.
+              {t('signIn.heroDescription')}
             </p>
             <div className="mt-12 flex items-center gap-6">
               <div>
                 <div className="text-3xl font-black text-on-primary">100%</div>
                 <div className="text-[10px] font-bold uppercase tracking-widest text-on-primary-container">
-                  Transparency
+                  {t('signIn.transparency')}
                 </div>
               </div>
               <div className="h-10 w-px bg-on-primary-container/25" />
               <div>
                 <div className="text-3xl font-black text-on-primary">Secure</div>
                 <div className="text-[10px] font-bold uppercase tracking-widest text-on-primary-container">
-                  Encryption
+                  {t('signIn.encryption')}
                 </div>
               </div>
             </div>
@@ -176,13 +170,13 @@ export default function SignInPage() {
           <div className="mx-auto flex max-w-md flex-col justify-center">
             <header className="mb-10">
               <span className="text-xs font-bold uppercase tracking-[0.2em] text-primary">
-                Sign in to continue
+                {t('signIn.signInToContinue')}
               </span>
               <h2 className="mt-3 text-3xl font-black tracking-tight text-primary md:text-4xl">
-                Welcome back
+                {t('signIn.title')}
               </h2>
               <p className="mt-3 text-sm leading-relaxed text-on-surface-variant md:text-base">
-                Sign in to manage your ration allocation and view audit logs.
+                {t('signIn.subtitle')}
               </p>
             </header>
 
@@ -190,7 +184,7 @@ export default function SignInPage() {
               <div className="space-y-2">
                 <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-on-surface-variant">
                   <span className="material-symbols-outlined text-sm">phone_iphone</span>
-                  Mobile Number
+                  {t('signIn.mobileNumber')}
                 </label>
                 <div className="relative">
                   <span className="absolute left-4 top-1/2 -translate-y-1/2 font-medium text-on-surface-variant">
@@ -203,21 +197,21 @@ export default function SignInPage() {
                     inputMode="numeric"
                     maxLength={10}
                     onChange={handlePhoneChange}
-                    placeholder="Enter 10 digit mobile number"
+                    placeholder={t('signIn.mobileNumber')}
                     disabled={isSubmitting}
                     type="text"
                     value={phone}
                   />
                 </div>
                 <p className="text-xs text-on-surface-variant">
-                  Only 10 digits are accepted.
+                  {t('signIn.mobileHint')}
                 </p>
               </div>
 
               <div className="space-y-2">
                 <label className="flex items-center gap-2 text-xs font-bold uppercase tracking-[0.18em] text-on-surface-variant">
                   <span className="material-symbols-outlined text-sm">lock</span>
-                  Password
+                  {t('signIn.password')}
                 </label>
                 <div className="relative">
                   <input
@@ -226,7 +220,7 @@ export default function SignInPage() {
                     }`}
                     disabled={isSubmitting}
                     onChange={handlePasswordChange}
-                    placeholder="Enter your password"
+                    placeholder={t('signIn.password')}
                     type="password"
                     value={password}
                   />
@@ -235,7 +229,7 @@ export default function SignInPage() {
                   <p className="text-sm font-medium text-error">{validationError}</p>
                 ) : (
                   <p className="text-xs text-on-surface-variant">
-                    Use the password associated with your account.
+                    {t('signIn.passwordHint')}
                   </p>
                 )}
               </div>
@@ -248,11 +242,11 @@ export default function SignInPage() {
                 {isSubmitting ? (
                   <>
                     <InlineSpinner />
-                    Signing In...
+                    {t('signIn.signingIn')}
                   </>
                 ) : (
                   <>
-                    Sign In
+                    {t('header.signIn')}
                     <span className="material-symbols-outlined text-sm">arrow_forward</span>
                   </>
                 )}
@@ -263,18 +257,18 @@ export default function SignInPage() {
                   <div className="w-full border-t border-surface-container" />
                 </div>
                 <div className="relative flex justify-center bg-surface-container-lowest px-4 text-xs uppercase tracking-[0.18em] text-outline">
-                  Account Access
+                  {t('signIn.accountAccess')}
                 </div>
               </div>
 
               <div className="text-center">
                 <p className="text-sm text-on-surface-variant">
-                  New user?
+                  {t('signIn.newUser')}
                   <Link
                     className="ml-1 font-bold text-primary underline-offset-4 hover:underline"
                     to={REGISTER_ROUTE}
                   >
-                    Register here
+                    {t('signIn.registerHere')}
                   </Link>
                 </p>
               </div>
@@ -285,19 +279,19 @@ export default function SignInPage() {
                 <div className="flex flex-col items-center gap-2 text-center">
                   <span className="material-symbols-outlined text-outline">verified_user</span>
                   <span className="text-[10px] font-bold uppercase tracking-widest text-outline">
-                    Verified
+                    {t('signIn.verified')}
                   </span>
                 </div>
                 <div className="flex flex-col items-center gap-2 text-center">
                   <span className="material-symbols-outlined text-outline">encrypted</span>
                   <span className="text-[10px] font-bold uppercase tracking-widest text-outline">
-                    Encrypted
+                    {t('signIn.encrypted')}
                   </span>
                 </div>
                 <div className="flex flex-col items-center gap-2 text-center">
                   <span className="material-symbols-outlined text-outline">policy</span>
                   <span className="text-[10px] font-bold uppercase tracking-widest text-outline">
-                    Compliant
+                    {t('signIn.compliant')}
                   </span>
                 </div>
               </div>
@@ -313,21 +307,21 @@ export default function SignInPage() {
               RationGuard Authority
             </div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
-              Secure access for users, dealers, and admins
+              {t('signIn.secureAccess')}
             </p>
           </div>
           <div className="flex flex-wrap gap-6 text-[11px] font-semibold uppercase tracking-[0.16em] text-slate-500 dark:text-slate-400">
             <Link className="transition-colors hover:text-blue-800" to={HOME_ROUTE}>
-              Privacy Policy
+              {t('footer.privacy')}
             </Link>
             <Link className="transition-colors hover:text-blue-800" to={HOME_ROUTE}>
-              Terms of Service
+              {t('footer.terms')}
             </Link>
             <Link className="transition-colors hover:text-blue-800" to={HOME_ROUTE}>
-              Accessibility
+              {t('register.accessibility')}
             </Link>
             <Link className="transition-colors hover:text-blue-800" to={HOME_ROUTE}>
-              Audit Log
+              {t('register.auditLog')}
             </Link>
           </div>
         </div>

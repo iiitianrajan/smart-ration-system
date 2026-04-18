@@ -8,6 +8,7 @@ export const OTP_VERIFICATION_ROUTE = '/otp-verification'
 export const REGISTER_ROUTE = '/register'
 
 export const DASHBOARD_OVERVIEW_ROUTE = '/dashboard/overview'
+export const DASHBOARD_ADMIN_ANALYTICS_ROUTE = '/dashboard/admin/analytics'
 export const DASHBOARD_ALLOCATIONS_ROUTE = '/dashboard/allocations'
 export const DASHBOARD_HISTORY_ROUTE = '/dashboard/history'
 export const DASHBOARD_GRIEVANCES_ROUTE = '/dashboard/grievances'

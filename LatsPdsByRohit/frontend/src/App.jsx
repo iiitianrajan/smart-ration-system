@@ -3,6 +3,7 @@ import './App.css'
 import ProtectedRoute from './components/ProtectedRoute'
 import {
   ALLOCATIONS_ROUTE,
+  DASHBOARD_ADMIN_ANALYTICS_ROUTE,
   DASHBOARD_ALLOCATIONS_ROUTE,
   DASHBOARD_GRIEVANCES_ROUTE,
   DASHBOARD_HISTORY_ROUTE,
@@ -23,6 +24,7 @@ import MyAllocationsPage from './dashboard/pages/MyAllocationsPage'
 import ProfilePage from './dashboard/pages/ProfilePage'
 import SettingsPage from './dashboard/pages/SettingsPage'
 import DashboardOverviewPage from './dashboard/pages/DashboardOverviewPage'
+import AdminAnalyticsPage from './dashboard/pages/AdminAnalyticsPage'
 import TransactionHistoryPage from './dashboard/pages/TransactionHistoryPage'
 import PublicLayout from './layouts/PublicLayout'
 import AllocationsPage from './pages/AllocationsPage'
@@ -55,6 +57,7 @@ export default function App() {
         <Route path="/dashboard" element={<DashboardLayout />}>
           <Route index element={<Navigate replace to={DASHBOARD_OVERVIEW_ROUTE} />} />
           <Route path="overview" element={<DashboardOverviewPage />} />
+          <Route path={DASHBOARD_ADMIN_ANALYTICS_ROUTE.replace('/dashboard/', '')} element={<AdminAnalyticsPage />} />
           <Route path="allocations" element={<MyAllocationsPage />} />
           <Route path="history" element={<TransactionHistoryPage />} />
           <Route path="grievances" element={<GrievancesPage />} />

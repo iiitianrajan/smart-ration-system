@@ -16,6 +16,10 @@ const allocationSchema = mongoose.Schema(
       type: Number,
       required: true,
     },
+    totalQuantity: {
+      type: Number,
+      default: null,
+    },
     monthYear: {
       type: String, // e.g. "Oct 2026"
       required: true,

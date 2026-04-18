@@ -1,264 +1,289 @@
+import { useEffect, useMemo, useState } from 'react'
+import toast from 'react-hot-toast'
+import { apiClient } from '../lib/apiClient'
+import { EmptyState, PageLoader } from '../components/ui/PageState'
+import { getApiErrorMessage } from '../utils/api'
+import { downloadCsv } from '../utils/actions'
+
+function sumInventory(shops, itemType) {
+  return shops.reduce((sum, shop) => {
+    const matchedItem = (shop.inventory || []).find((item) => item.itemType === itemType)
+    return sum + Number(matchedItem?.availableQuantity || 0)
+  }, 0)
+}
+
 export default function TransparencyReportsPage() {
+  const [shops, setShops] = useState([])
+  const [isLoading, setIsLoading] = useState(true)
+  const [error, setError] = useState('')
+
+  useEffect(() => {
+    let isMounted = true
+
+    async function loadShops() {
+      setIsLoading(true)
+      setError('')
+
+      try {
+        const response = await apiClient.get('/shops')
+
+        if (isMounted) {
+          setShops(Array.isArray(response.data) ? response.data : [])
+        }
+      } catch (requestError) {
+        if (isMounted) {
+          const nextError = getApiErrorMessage(requestError, 'Unable to load transparency reports.')
+          setError(nextError)
+          toast.error(nextError)
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    loadShops()
+
+    return () => {
+      isMounted = false
+    }
+  }, [])
+
+  const stats = useMemo(() => {
+    const activeShops = shops.filter((shop) => shop.status === 'Active').length
+    const shopsWithDealers = shops.filter((shop) => shop.dealerId?._id).length
+    const totalInventory =
+      sumInventory(shops, 'Wheat') +
+      sumInventory(shops, 'Rice') +
+      sumInventory(shops, 'Sugar') +
+      sumInventory(shops, 'Kerosene')
+
+    return {
+      totalShops: shops.length,
+      activeShops,
+      activeRate: shops.length ? Math.round((activeShops / shops.length) * 100) : 0,
+      dealerCoverage: shops.length ? Math.round((shopsWithDealers / shops.length) * 100) : 0,
+      totalInventory,
+      wheat: sumInventory(shops, 'Wheat'),
+      rice: sumInventory(shops, 'Rice'),
+      sugar: sumInventory(shops, 'Sugar'),
+    }
+  }, [shops])
+
+  const disclosureCards = useMemo(
+    () => [
+      {
+        title: 'Shop Directory Audit',
+        label: 'LIVE DIRECTORY',
+        description: `${stats.totalShops} registered shop records are currently available in the public directory.`,
+        value: `${stats.activeShops}/${stats.totalShops || 0}`,
+        footer: 'Active shops',
+        icon: 'description',
+      },
+      {
+        title: 'Dealer Assignment Coverage',
+        label: 'OPERATIONS',
+        description: 'Tracks how many listed shops are linked to an assigned dealer account.',
+        value: `${stats.dealerCoverage}%`,
+        footer: 'Dealer mapping coverage',
+        icon: 'analytics',
+      },
+      {
+        title: 'Inventory Snapshot',
+        label: 'MONTHLY',
+        description: 'Summarizes visible listed stock across the live shop inventory records.',
+        value: `${stats.totalInventory.toFixed(0)} KG`,
+        footer: 'Visible inventory',
+        icon: 'verified_user',
+      },
+    ],
+    [stats],
+  )
+
+  function handleExportSnapshot() {
+    if (!shops.length) {
+      toast.error('No transparency data is available to export.')
+      return
+    }
+
+    downloadCsv(
+      'transparency-snapshot.csv',
+      ['Shop ID', 'Shop Name', 'Status', 'Dealer', 'Visible Inventory'],
+      shops.map((shop) => [
+        shop.shopId,
+        shop.name,
+        shop.status,
+        shop.dealerId?.name || 'Unassigned',
+        (shop.inventory || []).reduce((sum, item) => sum + Number(item.availableQuantity || 0), 0).toFixed(1),
+      ]),
+    )
+    toast.success('Transparency snapshot exported.')
+  }
+
   return (
-    <main className="pt-32 pb-24 px-4 md:px-8 max-w-screen-2xl mx-auto">
+    <main className="mx-auto max-w-screen-2xl px-4 pb-24 pt-32 md:px-8">
       <header className="mb-20">
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-8">
+        <div className="flex flex-col justify-between gap-8 md:flex-row md:items-end">
           <div className="max-w-3xl">
-            <span className="label-md uppercase tracking-[0.2em] text-primary font-bold block mb-4">
+            <span className="label-md mb-4 block font-bold uppercase tracking-[0.2em] text-primary">
               Institutional Accountability
             </span>
-            <h1 className="text-4xl md:text-[3.5rem] font-extrabold leading-none tracking-tighter text-primary mb-6">
+            <h1 className="mb-6 text-4xl font-extrabold leading-none tracking-tighter text-primary md:text-[3.5rem]">
               Transparency Reports
             </h1>
-            <p className="text-lg text-secondary leading-relaxed max-w-2xl">
-              Comprehensive auditing of the national ration distribution network. We provide
-              immutable records of resource allocation, demographic impact, and systemic
-              efficiency.
+            <p className="max-w-2xl text-lg leading-relaxed text-secondary">
+              Live operational snapshots built from the current backend shop directory. These public
+              metrics help visitors understand network coverage, inventory visibility, and dealer assignment health.
             </p>
           </div>
-          <div className="bg-surface-container-low p-6 md:p-8 rounded-xl flex items-center gap-6 min-w-0 md:min-w-[300px] w-full md:w-auto">
-            <div className="h-16 w-1 bg-primary"></div>
+          <div className="flex w-full min-w-0 items-center gap-6 rounded-xl bg-surface-container-low p-6 md:w-auto md:min-w-[300px] md:p-8">
+            <div className="h-16 w-1 bg-primary" />
             <div>
-              <div className="text-3xl font-black text-primary">99.8%</div>
-              <div className="text-xs uppercase tracking-widest text-outline font-bold">
-                Data Accuracy Rating
+              <div className="text-3xl font-black text-primary">{stats.activeRate}%</div>
+              <div className="text-xs font-bold uppercase tracking-widest text-outline">
+                Active Shop Availability
               </div>
             </div>
           </div>
         </div>
       </header>
-      <section className="grid grid-cols-1 md:grid-cols-12 gap-6 mb-20">
-        <div className="md:col-span-8 bg-surface-container-low p-6 md:p-8 rounded-2xl relative overflow-hidden">
-          <div className="flex flex-col sm:flex-row justify-between items-start mb-12 gap-4">
-            <div>
-              <h3 className="text-xl font-bold tracking-tight text-primary">Distribution Trends</h3>
-              <p className="text-sm text-secondary">
-                National allocation vs. Actual fulfillment (Last 12 Months)
-              </p>
-            </div>
-            <div className="flex gap-2">
-              <span className="px-3 py-1 bg-surface-container-lowest text-[10px] font-bold rounded-full text-primary">
-                LIVE DATA
-              </span>
-            </div>
-          </div>
-          <div className="h-64 flex items-end justify-between gap-2 px-2 md:px-4">
-            <div className="w-full bg-primary-fixed-dim/20 rounded-t-sm h-[60%] relative group">
-              <div className="absolute bottom-0 w-full bg-primary h-[85%] group-hover:h-[90%] transition-all duration-500"></div>
-            </div>
-            <div className="w-full bg-primary-fixed-dim/20 rounded-t-sm h-[65%] relative group">
-              <div className="absolute bottom-0 w-full bg-primary h-[70%] group-hover:h-[75%] transition-all duration-500"></div>
-            </div>
-            <div className="w-full bg-primary-fixed-dim/20 rounded-t-sm h-[80%] relative group">
-              <div className="absolute bottom-0 w-full bg-primary h-[95%] group-hover:h-[100%] transition-all duration-500"></div>
-            </div>
-            <div className="w-full bg-primary-fixed-dim/20 rounded-t-sm h-[55%] relative group">
-              <div className="absolute bottom-0 w-full bg-primary h-[40%] group-hover:h-[45%] transition-all duration-500"></div>
-            </div>
-            <div className="w-full bg-primary-fixed-dim/20 rounded-t-sm h-[70%] relative group">
-              <div className="absolute bottom-0 w-full bg-primary h-[88%] group-hover:h-[93%] transition-all duration-500"></div>
-            </div>
-            <div className="w-full bg-primary-fixed-dim/20 rounded-t-sm h-[90%] relative group">
-              <div className="absolute bottom-0 w-full bg-primary h-[92%] group-hover:h-[97%] transition-all duration-500"></div>
-            </div>
-          </div>
-          <div className="mt-6 flex justify-between text-[10px] font-bold text-outline-variant uppercase tracking-widest px-2 md:px-4">
-            <span>Jan</span>
-            <span>Feb</span>
-            <span>Mar</span>
-            <span>Apr</span>
-            <span>May</span>
-            <span>Jun</span>
-          </div>
+
+      {isLoading ? (
+        <PageLoader
+          title="Loading transparency reports..."
+          description="We are building public metrics from the latest shop directory records."
+        />
+      ) : error ? (
+        <div className="rounded-2xl border border-red-100 bg-red-50 p-6 text-sm font-medium text-error shadow-sm">
+          {error}
         </div>
-        <div className="md:col-span-4 bg-primary text-on-primary p-6 md:p-8 rounded-2xl flex flex-col justify-between">
-          <div>
-            <h3 className="text-xl font-bold tracking-tight mb-2">Demographic Impact</h3>
-            <p className="text-sm text-on-primary-container">
-              Social equity breakdown across all regions.
-            </p>
-          </div>
-          <div className="space-y-6 my-8">
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
-                <span>Urban Reach</span>
-                <span>74%</span>
+      ) : !shops.length ? (
+        <EmptyState
+          title="No transparency data available"
+          description="No shop records are currently available to generate public transparency summaries."
+          icon="monitoring"
+        />
+      ) : (
+        <>
+          <section className="mb-20 grid grid-cols-1 gap-6 md:grid-cols-12">
+            <div className="relative overflow-hidden rounded-2xl bg-surface-container-low p-6 md:col-span-8 md:p-8">
+              <div className="mb-12 flex flex-col items-start justify-between gap-4 sm:flex-row">
+                <div>
+                  <h3 className="text-xl font-bold tracking-tight text-primary">Inventory Trends</h3>
+                  <p className="text-sm text-secondary">
+                    Live public inventory totals from the current shop directory.
+                  </p>
+                </div>
+                <div className="flex gap-2">
+                  <span className="rounded-full bg-surface-container-lowest px-3 py-1 text-[10px] font-bold text-primary">
+                    LIVE DATA
+                  </span>
+                </div>
               </div>
-              <div className="h-1 bg-on-primary/10 rounded-full overflow-hidden">
-                <div className="h-full bg-on-primary-container w-[74%]"></div>
+              <div className="flex h-64 items-end justify-between gap-2 px-2 md:px-4">
+                {[
+                  { label: 'Wheat', value: stats.wheat, color: 'bg-primary' },
+                  { label: 'Rice', value: stats.rice, color: 'bg-primary' },
+                  { label: 'Sugar', value: stats.sugar, color: 'bg-primary' },
+                  { label: 'Shops', value: stats.totalShops, color: 'bg-primary' },
+                  { label: 'Active', value: stats.activeShops, color: 'bg-primary' },
+                  { label: 'Dealers', value: Math.round((stats.dealerCoverage / 100) * (stats.totalShops || 0)), color: 'bg-primary' },
+                ].map((entry) => {
+                  const maxValue = Math.max(stats.wheat, stats.rice, stats.sugar, stats.totalShops, stats.activeShops, 1)
+                  const height = `${Math.max((entry.value / maxValue) * 100, entry.value > 0 ? 18 : 0)}%`
+
+                  return (
+                    <div key={entry.label} className="group relative h-full w-full rounded-t-sm bg-primary-fixed-dim/20">
+                      <div className={`absolute bottom-0 w-full rounded-t-sm ${entry.color} transition-all duration-500 group-hover:brightness-110`} style={{ height }} />
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="mt-6 flex justify-between px-2 text-[10px] font-bold uppercase tracking-widest text-outline-variant md:px-4">
+                <span>Wheat</span>
+                <span>Rice</span>
+                <span>Sugar</span>
+                <span>Shops</span>
+                <span>Active</span>
+                <span>Dealers</span>
               </div>
             </div>
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
-                <span>Rural Saturation</span>
-                <span>92%</span>
+
+            <div className="flex flex-col justify-between rounded-2xl bg-primary p-6 text-on-primary md:col-span-4 md:p-8">
+              <div>
+                <h3 className="mb-2 text-xl font-bold tracking-tight">Directory Coverage</h3>
+                <p className="text-sm text-on-primary-container">
+                  Publicly visible operational indicators derived from the shop registry.
+                </p>
               </div>
-              <div className="h-1 bg-on-primary/10 rounded-full overflow-hidden">
-                <div className="h-full bg-on-primary-container w-[92%]"></div>
+              <div className="my-8 space-y-6">
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
+                    <span>Active Shops</span>
+                    <span>{stats.activeRate}%</span>
+                  </div>
+                  <div className="h-1 overflow-hidden rounded-full bg-on-primary/10">
+                    <div className="h-full bg-on-primary-container" style={{ width: `${stats.activeRate}%` }} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
+                    <span>Dealer Coverage</span>
+                    <span>{stats.dealerCoverage}%</span>
+                  </div>
+                  <div className="h-1 overflow-hidden rounded-full bg-on-primary/10">
+                    <div className="h-full bg-on-primary-container" style={{ width: `${stats.dealerCoverage}%` }} />
+                  </div>
+                </div>
+                <div className="space-y-2">
+                  <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
+                    <span>Inventory Visibility</span>
+                    <span>{stats.totalInventory.toFixed(0)} KG</span>
+                  </div>
+                  <div className="h-1 overflow-hidden rounded-full bg-on-primary/10">
+                    <div className="h-full w-full bg-white" />
+                  </div>
+                </div>
               </div>
-            </div>
-            <div className="space-y-2">
-              <div className="flex justify-between text-xs font-bold uppercase tracking-wider">
-                <span>Priority Households</span>
-                <span>100%</span>
-              </div>
-              <div className="h-1 bg-on-primary/10 rounded-full overflow-hidden">
-                <div className="h-full bg-white w-full"></div>
-              </div>
-            </div>
-          </div>
-          <button className="text-xs font-bold uppercase tracking-widest flex items-center gap-2 hover:gap-4 transition-all">
-            VIEW REGIONAL AUDITS <span className="material-symbols-outlined text-sm">arrow_forward</span>
-          </button>
-        </div>
-      </section>
-      <section className="mb-20">
-        <div className="flex items-center gap-4 mb-10">
-          <h2 className="text-2xl font-bold tracking-tight text-primary">
-            Annual &amp; Monthly Disclosures
-          </h2>
-          <div className="flex-grow h-px bg-surface-container"></div>
-        </div>
-        <div className="grid grid-cols-1 xl:grid-cols-3 md:grid-cols-2 gap-6">
-          <div className="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 hover:shadow-xl transition-shadow group">
-            <div className="flex justify-between items-start mb-6">
-              <div className="p-3 bg-surface-container-low rounded-lg group-hover:bg-primary group-hover:text-on-primary transition-colors">
-                <span className="material-symbols-outlined">description</span>
-              </div>
-              <span className="text-[10px] font-black text-outline uppercase tracking-widest">
-                FY 2023-24
-              </span>
-            </div>
-            <h4 className="text-lg font-bold text-primary mb-2">Annual Transparency Audit</h4>
-            <p className="text-sm text-secondary mb-6">
-              Comprehensive year-end summary including third-party audit verifications and fiscal
-              summaries.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button className="flex-1 flex items-center justify-center gap-2 bg-surface-container-low py-3 rounded-lg text-xs font-bold text-primary hover:bg-surface-container-high transition-colors">
-                <span className="material-symbols-outlined text-sm">picture_as_pdf</span> PDF
-              </button>
-              <button className="flex-1 flex items-center justify-center gap-2 bg-surface-container-low py-3 rounded-lg text-xs font-bold text-primary hover:bg-surface-container-high transition-colors">
-                <span className="material-symbols-outlined text-sm">csv</span> CSV
-              </button>
-            </div>
-          </div>
-          <div className="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 hover:shadow-xl transition-shadow group">
-            <div className="flex justify-between items-start mb-6">
-              <div className="p-3 bg-surface-container-low rounded-lg group-hover:bg-primary group-hover:text-on-primary transition-colors">
-                <span className="material-symbols-outlined">analytics</span>
-              </div>
-              <span className="text-[10px] font-black text-outline uppercase tracking-widest">
-                Q3 REPORT
-              </span>
-            </div>
-            <h4 className="text-lg font-bold text-primary mb-2">Supply Chain Efficiency</h4>
-            <p className="text-sm text-secondary mb-6">
-              Analysis of logistics, warehouse throughput, and fair price shop delivery timelines.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button className="flex-1 flex items-center justify-center gap-2 bg-surface-container-low py-3 rounded-lg text-xs font-bold text-primary hover:bg-surface-container-high transition-colors">
-                <span className="material-symbols-outlined text-sm">picture_as_pdf</span> PDF
-              </button>
-              <button className="flex-1 flex items-center justify-center gap-2 bg-surface-container-low py-3 rounded-lg text-xs font-bold text-primary hover:bg-surface-container-high transition-colors">
-                <span className="material-symbols-outlined text-sm">csv</span> CSV
-              </button>
-            </div>
-          </div>
-          <div className="bg-surface-container-lowest p-6 rounded-xl border border-outline-variant/10 hover:shadow-xl transition-shadow group">
-            <div className="flex justify-between items-start mb-6">
-              <div className="p-3 bg-surface-container-low rounded-lg group-hover:bg-primary group-hover:text-on-primary transition-colors">
-                <span className="material-symbols-outlined">verified_user</span>
-              </div>
-              <span className="text-[10px] font-black text-outline uppercase tracking-widest">
-                MONTHLY
-              </span>
-            </div>
-            <h4 className="text-lg font-bold text-primary mb-2">Grievance Redressal Audit</h4>
-            <p className="text-sm text-secondary mb-6">
-              Summary of user feedback, complaint resolution rates, and systemic improvements.
-            </p>
-            <div className="flex flex-col sm:flex-row gap-3">
-              <button className="flex-1 flex items-center justify-center gap-2 bg-surface-container-low py-3 rounded-lg text-xs font-bold text-primary hover:bg-surface-container-high transition-colors">
-                <span className="material-symbols-outlined text-sm">picture_as_pdf</span> PDF
-              </button>
-              <button className="flex-1 flex items-center justify-center gap-2 bg-surface-container-low py-3 rounded-lg text-xs font-bold text-primary hover:bg-surface-container-high transition-colors">
-                <span className="material-symbols-outlined text-sm">csv</span> CSV
+              <button
+                className="flex items-center gap-2 text-xs font-bold uppercase tracking-widest transition-all hover:gap-4"
+                onClick={handleExportSnapshot}
+                type="button"
+              >
+                LIVE DIRECTORY SNAPSHOT <span className="material-symbols-outlined text-sm">arrow_forward</span>
               </button>
             </div>
-          </div>
-        </div>
-      </section>
-      <section className="bg-surface-container p-6 md:p-12 rounded-3xl overflow-hidden relative">
-        <div className="relative z-10 grid grid-cols-1 lg:grid-cols-2 gap-10 md:gap-16 items-center">
-          <div>
-            <span className="text-[10px] font-black text-primary-container bg-primary-fixed px-3 py-1 rounded-full uppercase tracking-[0.2em] mb-6 inline-block">
-              Developer Portal
-            </span>
-            <h2 className="text-3xl md:text-4xl font-extrabold text-primary mb-6 leading-tight">
-              Open Data API for Researchers
-            </h2>
-            <p className="text-lg text-secondary mb-8">
-              Direct programmatic access to the Public Ledger. We believe in the power of
-              independent analysis. Our RESTful API provides granular data endpoints for NGOs,
-              researchers, and civil society.
-            </p>
-            <div className="flex flex-col sm:flex-row flex-wrap gap-4">
-              <button className="bg-primary text-on-primary w-full sm:w-auto px-8 py-4 justify-center rounded-lg font-bold hover:bg-primary-container transition-all flex items-center gap-3">
-                <span className="material-symbols-outlined">api</span> READ DOCUMENTATION
-              </button>
-              <button className="bg-surface-container-lowest w-full sm:w-auto px-8 py-4 justify-center text-primary rounded-lg font-bold hover:bg-white transition-all">
-                REQUEST API KEY
-              </button>
+          </section>
+
+          <section className="mb-20">
+            <div className="mb-10 flex items-center gap-4">
+              <h2 className="text-2xl font-bold tracking-tight text-primary">Annual &amp; Monthly Disclosures</h2>
+              <div className="h-px flex-grow bg-surface-container" />
             </div>
-          </div>
-          <div className="bg-inverse-surface p-6 rounded-2xl shadow-2xl font-mono text-xs md:text-sm leading-relaxed text-on-primary-container/80 relative overflow-x-auto">
-            <div className="absolute top-4 right-4 flex gap-2">
-              <div className="w-3 h-3 rounded-full bg-error/40"></div>
-              <div className="w-3 h-3 rounded-full bg-secondary/40"></div>
-              <div className="w-3 h-3 rounded-full bg-primary-fixed/40"></div>
+            <div className="grid grid-cols-1 gap-6 md:grid-cols-2 xl:grid-cols-3">
+              {disclosureCards.map((card) => (
+                <div key={card.title} className="group rounded-xl border border-outline-variant/10 bg-surface-container-lowest p-6 transition-shadow hover:shadow-xl">
+                  <div className="mb-6 flex items-start justify-between">
+                    <div className="rounded-lg bg-surface-container-low p-3 transition-colors group-hover:bg-primary group-hover:text-on-primary">
+                      <span className="material-symbols-outlined">{card.icon}</span>
+                    </div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-outline">
+                      {card.label}
+                    </span>
+                  </div>
+                  <h4 className="mb-2 text-lg font-bold text-primary">{card.title}</h4>
+                  <p className="mb-6 text-sm text-secondary">{card.description}</p>
+                  <div className="flex items-center justify-between rounded-lg bg-surface-container-low px-4 py-3">
+                    <span className="text-xs font-bold uppercase tracking-widest text-secondary">{card.footer}</span>
+                    <span className="text-sm font-black text-primary">{card.value}</span>
+                  </div>
+                </div>
+              ))}
             </div>
-            <div className="text-primary-fixed mb-4">// GET /v1/transparency/allocations</div>
-            <div className="space-y-1">
-              <span className="text-white">{'{'}</span>
-              <br />
-              &nbsp;&nbsp;<span className="text-primary-fixed-dim">&quot;region&quot;:</span>{' '}
-              <span className="text-on-tertiary-container">&quot;Northern District-4&quot;</span>,
-              <br />
-              &nbsp;&nbsp;<span className="text-primary-fixed-dim">&quot;period&quot;:</span>{' '}
-              <span className="text-on-tertiary-container">&quot;2024-Q1&quot;</span>,
-              <br />
-              &nbsp;&nbsp;<span className="text-primary-fixed-dim">&quot;metrics&quot;:</span> [
-              <br />
-              &nbsp;&nbsp;&nbsp;&nbsp;{'{ '}
-              <span className="text-primary-fixed-dim">&quot;commodity&quot;:</span>{' '}
-              <span className="text-on-tertiary-container">&quot;Wheat&quot;</span>,{' '}
-              <span className="text-primary-fixed-dim">&quot;tons&quot;:</span>{' '}
-              <span className="text-on-tertiary-container">12450.5</span> {'},'}
-              <br />
-              &nbsp;&nbsp;&nbsp;&nbsp;{'{ '}
-              <span className="text-primary-fixed-dim">&quot;commodity&quot;:</span>{' '}
-              <span className="text-on-tertiary-container">&quot;Rice&quot;</span>,{' '}
-              <span className="text-primary-fixed-dim">&quot;tons&quot;:</span>{' '}
-              <span className="text-on-tertiary-container">8920.2</span> {'}'}
-              <br />
-              &nbsp;&nbsp;],
-              <br />
-              &nbsp;&nbsp;<span className="text-primary-fixed-dim">&quot;verified&quot;:</span>{' '}
-              <span className="text-on-tertiary-container">true</span>
-              <br />
-              <span className="text-white">{'}'}</span>
-            </div>
-          </div>
-        </div>
-        <div
-          className="absolute inset-0 opacity-10 pointer-events-none"
-          style={{
-            backgroundImage: 'radial-gradient(circle at 2px 2px, #001e40 1px, transparent 0)',
-            backgroundSize: '40px 40px',
-          }}
-        ></div>
-      </section>
+          </section>
+        </>
+      )}
     </main>
   )
 }

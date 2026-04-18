@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useState } from 'react'
-import { toast } from 'sonner'
-import { API_BASE_URL } from '../../config'
+import toast from 'react-hot-toast'
+import { apiClient } from '../../lib/apiClient'
 import { useAuth } from '../../context/AuthContext'
 import { isAdminRole } from '../../utils/roles'
 import InlineSpinner from '../../components/ui/InlineSpinner'
 import { EmptyState, PageLoader } from '../../components/ui/PageState'
-import { getErrorMessage, readJsonSafely } from '../../utils/api'
+import { getApiErrorMessage } from '../../utils/api'
+import { callPhoneNumber, downloadCsv, openMapQuery } from '../../utils/actions'
 
 const ITEM_STYLES = {
   Wheat: {
@@ -56,21 +57,10 @@ export default function MyAllocationsPage() {
 
     try {
       const endpoint = isAdmin ? '/allocations' : '/allocations/my'
-      const response = await fetch(`${API_BASE_URL}${endpoint}`, {
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      })
-
-      const data = await readJsonSafely(response)
-
-      if (!response.ok) {
-        throw new Error(getErrorMessage(data, 'Unable to load your allocations.'))
-      }
-
-      setAllocations(Array.isArray(data) ? data : [])
+      const response = await apiClient.get(endpoint)
+      setAllocations(Array.isArray(response.data) ? response.data : [])
     } catch (requestError) {
-      const nextError = requestError.message || 'Unable to load your allocations.'
+      const nextError = getApiErrorMessage(requestError, 'Unable to load your allocations.')
       setError(nextError)
       toast.error(nextError)
     } finally {
@@ -92,26 +82,19 @@ export default function MyAllocationsPage() {
       }
 
       try {
-        const response = await fetch(`${API_BASE_URL}/users/customers`, {
-          headers: {
-            Authorization: `Bearer ${token}`,
-          },
-        })
-
-        const data = await readJsonSafely(response)
-
-        if (!response.ok) {
-          throw new Error(getErrorMessage(data, 'Unable to load users for allocation management.'))
-        }
+        const response = await apiClient.get('/users/customers')
 
         if (isActive) {
-          const nextUsers = Array.isArray(data) ? data : []
+          const nextUsers = Array.isArray(response.data) ? response.data : []
           setUsers(nextUsers)
           setSelectedUserId((currentValue) => currentValue || nextUsers[0]?._id || '')
         }
       } catch (requestError) {
         if (isActive) {
-          const nextError = requestError.message || 'Unable to load users for allocation management.'
+          const nextError = getApiErrorMessage(
+            requestError,
+            'Unable to load users for allocation management.',
+          )
           setSubmitError(nextError)
           toast.error(nextError)
         }
@@ -150,25 +133,12 @@ export default function MyAllocationsPage() {
     setIsSubmitting(true)
 
     try {
-      const response = await fetch(`${API_BASE_URL}/allocations`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${token}`,
-        },
-        body: JSON.stringify({
-          userId: selectedUserId,
-          itemType: selectedItemType,
-          totalQuantity: normalizedQuantity,
-          monthYear: getCurrentMonthYear(),
-        }),
+      await apiClient.post('/allocations', {
+        userId: selectedUserId,
+        itemType: selectedItemType,
+        totalQuantity: normalizedQuantity,
+        monthYear: getCurrentMonthYear(),
       })
-
-      const data = await readJsonSafely(response)
-
-      if (!response.ok) {
-        throw new Error(getErrorMessage(data, 'Unable to create allocation.'))
-      }
 
       setTotalQuantity('')
       setSelectedUserId((currentValue) => currentValue || users[0]?._id || '')
@@ -177,7 +147,7 @@ export default function MyAllocationsPage() {
       toast.success('Allocation created successfully.')
       await loadAllocations()
     } catch (requestError) {
-      const nextError = requestError.message || 'Unable to create allocation.'
+      const nextError = getApiErrorMessage(requestError, 'Unable to create allocation.')
       setSubmitError(nextError)
       toast.error(nextError)
     } finally {
@@ -186,10 +156,14 @@ export default function MyAllocationsPage() {
   }
 
   const totals = useMemo(() => {
-    const totalQuantity = allocations.reduce((sum, allocation) => sum + (allocation.quantity || 0), 0)
-    const remainingQuantity = allocations
-      .filter((allocation) => allocation.status !== 'Collected')
-      .reduce((sum, allocation) => sum + (allocation.quantity || 0), 0)
+    const totalQuantity = allocations.reduce(
+      (sum, allocation) => sum + Number(allocation.totalQuantity ?? allocation.quantity ?? 0),
+      0,
+    )
+    const remainingQuantity = allocations.reduce(
+      (sum, allocation) => sum + Number(allocation.quantity || 0),
+      0,
+    )
 
     return { totalQuantity, remainingQuantity }
   }, [allocations])
@@ -205,6 +179,7 @@ export default function MyAllocationsPage() {
         ...allocation,
         icon: config.icon,
         iconClass: config.iconClass,
+        displayQuantity: Number(allocation.totalQuantity ?? allocation.quantity ?? 0),
         remainingQuantity: allocation.status === 'Collected' ? 0 : allocation.quantity || 0,
       }
     })
@@ -215,6 +190,38 @@ export default function MyAllocationsPage() {
     : 0
 
   const entitlementPeriod = allocations[0]?.monthYear || 'Current Cycle'
+
+  function handleDownloadSlip() {
+    if (!allocations.length) {
+      toast.error('No allocation data is available to export.')
+      return
+    }
+
+    downloadCsv(
+      'allocation-slip.csv',
+      ['Month', 'Item', 'Total Quantity', 'Remaining Quantity', 'Status'],
+      allocations.map((allocation) => [
+        allocation.monthYear,
+        allocation.itemType,
+        Number(allocation.totalQuantity ?? allocation.quantity ?? 0).toFixed(1),
+        Number(allocation.quantity || 0).toFixed(1),
+        allocation.status,
+      ]),
+    )
+    toast.success('Allocation slip downloaded.')
+  }
+
+  function handleForecastPreview() {
+    toast.success(`Current cycle ${entitlementPeriod}: ${totals.remainingQuantity.toFixed(1)} kg remaining.`)
+  }
+
+  function handleDirections() {
+    openMapQuery('Authorized Fair Price Shop near me')
+  }
+
+  function handleCallCenter() {
+    callPhoneNumber('18004429000')
+  }
 
   return (
     <div className="max-w-6xl">
@@ -230,7 +237,11 @@ export default function MyAllocationsPage() {
               : 'View your authorized grain entitlements for the current cycle. Allocations are calculated based on household size and verified eligibility criteria.'}
           </p>
         </div>
-        <button className="mt-4 flex items-center justify-center gap-2 rounded-lg bg-primary px-6 py-3 font-semibold text-on-primary shadow-sm hover:brightness-110 md:mt-0">
+        <button
+          className="mt-4 flex items-center justify-center gap-2 rounded-lg bg-primary px-6 py-3 font-semibold text-on-primary shadow-sm hover:brightness-110 md:mt-0"
+          onClick={handleDownloadSlip}
+          type="button"
+        >
           <span className="material-symbols-outlined">download</span>
           Download Allocation Slip
         </button>
@@ -404,7 +415,7 @@ export default function MyAllocationsPage() {
                           </p>
                         ) : null}
                         <div className="mt-1 flex items-baseline gap-1">
-                          <span className="text-4xl font-black text-on-surface">{(allocation.quantity || 0).toFixed(1)}</span>
+                          <span className="text-4xl font-black text-on-surface">{allocation.displayQuantity.toFixed(1)}</span>
                           <span className="text-sm font-bold text-on-surface-variant">kg</span>
                         </div>
                       </div>
@@ -426,7 +437,7 @@ export default function MyAllocationsPage() {
                 )}
               </div>
             </div>
-            
+
             <div className="rounded-2xl border border-surface bg-primary p-8 text-on-primary flex flex-col md:flex-row justify-between items-center shadow-lg">
               <div>
                 <h3 className="text-xl font-bold">Next Forecast</h3>
@@ -441,7 +452,11 @@ export default function MyAllocationsPage() {
                   </div>
                 </div>
               </div>
-              <button className="mt-6 w-full md:w-auto md:mt-0 rounded bg-on-primary px-6 py-3 font-bold text-primary hover:bg-slate-100">
+              <button
+                className="mt-6 w-full rounded bg-on-primary px-6 py-3 font-bold text-primary hover:bg-slate-100 md:mt-0 md:w-auto"
+                onClick={handleForecastPreview}
+                type="button"
+              >
                 View Full Forecast
               </button>
             </div>
@@ -450,7 +465,7 @@ export default function MyAllocationsPage() {
           <div className="space-y-6">
             <div className="rounded-2xl border border-surface bg-surface-container-lowest p-6 shadow-sm">
               <h3 className="mb-6 text-[11px] font-bold uppercase tracking-widest text-primary">Household Context</h3>
-              
+
               <div className="space-y-4">
                 <div className="flex justify-between border-b border-surface pb-3">
                   <span className="text-sm font-medium text-on-surface-variant">Account Holder</span>
@@ -482,15 +497,23 @@ export default function MyAllocationsPage() {
               </div>
               <div className="p-6">
                 <h3 className="text-[11px] font-bold uppercase tracking-widest text-primary mb-2">Fair Price Shop (FPS)</h3>
-                <p className="font-bold text-on-surface truncate">Authorized Pickup Center</p>
+                <p className="font-bold text-on-surface truncate">Pickup mapping pending</p>
                 <p className="mt-1 text-sm text-on-surface-variant leading-tight">
-                  Allocation pickup details will appear here once mapped to your profile.
+                  This account does not currently expose a mapped pickup shop from the backend.
                 </p>
                 <div className="mt-6 flex gap-3">
-                  <button className="flex-1 rounded bg-surface-container py-2 text-xs font-bold text-on-surface hover:bg-surface-variant">
+                  <button
+                    className="flex-1 rounded bg-surface-container py-2 text-xs font-bold text-on-surface hover:bg-surface-variant"
+                    onClick={handleDirections}
+                    type="button"
+                  >
                     Directions
                   </button>
-                  <button className="flex-1 rounded bg-surface-container py-2 text-xs font-bold text-on-surface hover:bg-surface-variant">
+                  <button
+                    className="flex-1 rounded bg-surface-container py-2 text-xs font-bold text-on-surface hover:bg-surface-variant"
+                    onClick={handleCallCenter}
+                    type="button"
+                  >
                     Call Center
                   </button>
                 </div>

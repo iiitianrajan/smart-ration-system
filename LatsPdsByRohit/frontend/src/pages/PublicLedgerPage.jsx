@@ -1,284 +1,401 @@
+import { useEffect, useMemo, useState } from 'react'
+import { Link } from 'react-router-dom'
+import toast from 'react-hot-toast'
+import { SIGN_IN_ROUTE } from '../constants/routes'
+import { useAuth } from '../context/AuthContext'
+import { apiClient } from '../lib/apiClient'
+import { EmptyState, PageLoader } from '../components/ui/PageState'
+import { getApiErrorMessage } from '../utils/api'
+import { downloadCsv } from '../utils/actions'
+
+function formatDateTime(dateValue) {
+  const date = new Date(dateValue)
+
+  if (Number.isNaN(date.getTime())) {
+    return 'Unknown'
+  }
+
+  return date.toLocaleString('en-IN', {
+    day: '2-digit',
+    month: 'short',
+    year: 'numeric',
+    hour: '2-digit',
+    minute: '2-digit',
+  })
+}
+
+function getVerificationTone(receiptId) {
+  if (!receiptId) {
+    return {
+      label: 'Pending Review',
+      className: 'text-blue-700',
+      icon: 'pending_actions',
+    }
+  }
+
+  return {
+    label: 'Recorded',
+    className: 'text-green-700',
+    icon: 'check_circle',
+  }
+}
+
 export default function PublicLedgerPage() {
+  const { isAuthenticated } = useAuth()
+  const [transactions, setTransactions] = useState([])
+  const [isLoading, setIsLoading] = useState(false)
+  const [error, setError] = useState('')
+  const [searchTerm, setSearchTerm] = useState('')
+  const [selectedCommodity, setSelectedCommodity] = useState('All Types')
+
+  useEffect(() => {
+    if (!isAuthenticated) {
+      setTransactions([])
+      setError('')
+      return
+    }
+
+    let isMounted = true
+
+    async function loadTransactions() {
+      setIsLoading(true)
+      setError('')
+
+      try {
+        const response = await apiClient.get('/transactions')
+        
+
+        if (isMounted) {
+          setTransactions(Array.isArray(response.data) ? response.data : [])
+        }
+      } catch (requestError) {
+        if (isMounted) {
+          const nextError = getApiErrorMessage(requestError, 'Unable to load the transaction ledger.')
+          setError(nextError)
+          toast.error(nextError)
+        }
+      } finally {
+        if (isMounted) {
+          setIsLoading(false)
+        }
+      }
+    }
+
+    loadTransactions()
+
+    return () => {
+      isMounted = false
+    }
+  }, [isAuthenticated])
+
+  const commodityOptions = useMemo(() => {
+    const itemTypes = new Set()
+
+    transactions.forEach((transaction) => {
+      ;(transaction.itemsCollected || []).forEach((item) => itemTypes.add(item.itemType))
+    })
+
+    return ['All Types', ...Array.from(itemTypes)]
+  }, [transactions])
+
+  const filteredTransactions = useMemo(() => {
+    return transactions.filter((transaction) => {
+      const searchableText = [
+        transaction.receiptId,
+        transaction.shop?.name,
+        transaction.shop?.location,
+        ...(transaction.itemsCollected || []).map((item) => item.itemType),
+      ]
+        .filter(Boolean)
+        .join(' ')
+        .toLowerCase()
+
+      const matchesSearch = !searchTerm.trim() || searchableText.includes(searchTerm.trim().toLowerCase())
+      const matchesCommodity =
+        selectedCommodity === 'All Types' ||
+        (transaction.itemsCollected || []).some((item) => item.itemType === selectedCommodity)
+
+      return matchesSearch && matchesCommodity
+    })
+  }, [searchTerm, selectedCommodity, transactions])
+
+  const stats = useMemo(() => {
+    const today = new Date()
+    const todayKey = today.toDateString()
+    const totalQuantity = transactions.reduce(
+      (sum, transaction) =>
+        sum +
+        (transaction.itemsCollected || []).reduce(
+          (itemSum, item) => itemSum + (Number(item.quantity) || 0),
+          0,
+        ),
+      0,
+    )
+    const todayTransactions = transactions.filter(
+      (transaction) => new Date(transaction.transactionDate).toDateString() === todayKey,
+    ).length
+    const uniqueShops = new Set(transactions.map((transaction) => transaction.shop?._id).filter(Boolean)).size
+
+    return {
+      totalTransactions: transactions.length,
+      todayTransactions,
+      totalQuantity,
+      uniqueShops,
+    }
+  }, [transactions])
+
+  function handleExportLedger() {
+    if (!filteredTransactions.length) {
+      toast.error('No ledger records are available to export.')
+      return
+    }
+
+    downloadCsv(
+      'public-ledger.csv',
+      ['Receipt ID', 'Shop', 'Location', 'Items', 'Timestamp'],
+      filteredTransactions.map((transaction) => [
+        transaction.receiptId || transaction._id,
+        transaction.shop?.name || 'Unknown Shop',
+        transaction.shop?.location || 'Location unavailable',
+        (transaction.itemsCollected || []).map((item) => `${item.quantity} ${item.itemType}`).join('; '),
+        formatDateTime(transaction.transactionDate),
+      ]),
+    )
+    toast.success('Ledger export downloaded.')
+  }
+
   return (
-    <main className="pt-24 pb-20 max-w-screen-2xl mx-auto px-4 md:px-8">
+    <main className="mx-auto max-w-screen-2xl px-4 pb-20 pt-24 md:px-8">
       <header className="mb-12">
-        <div className="flex flex-col md:flex-row md:items-end justify-between gap-6">
+        <div className="flex flex-col justify-between gap-6 md:flex-row md:items-end">
           <div>
-            <span className="text-label-md uppercase tracking-[0.05em] font-bold text-secondary mb-2 block">
+            <span className="mb-2 block text-label-md font-bold uppercase tracking-[0.05em] text-secondary">
               National Transparency Protocol
+              
             </span>
-            <h1 className="text-4xl sm:text-5xl font-extrabold tracking-tighter text-primary leading-none">
+            <h1 className="text-4xl font-extrabold leading-none tracking-tighter text-primary sm:text-5xl">
               Public Ledger
             </h1>
-            <p className="mt-4 text-secondary max-w-xl text-lg leading-relaxed">
-              Immutable verification of every grain distributed. Real-time auditing of the National
-              Food Security pipeline powered by distributed ledger technology.
+            <p className="mt-4 max-w-xl text-lg leading-relaxed text-secondary">
+              Review recorded ration transactions from the backend ledger. Signed-in users see the
+              ledger scope allowed by their role and permissions.
             </p>
           </div>
-          <div className="flex flex-col sm:flex-row gap-4 w-full md:w-auto">
-            <button className="flex w-full sm:w-auto justify-center items-center gap-2 px-6 py-3 bg-surface-container-highest text-on-surface-variant font-semibold rounded-lg hover:bg-surface-variant transition-colors">
+          <div className="flex w-full flex-col gap-4 sm:flex-row md:w-auto">
+            <button
+              className="flex w-full items-center justify-center gap-2 rounded-lg bg-surface-container-highest px-6 py-3 font-semibold text-on-surface-variant transition-colors hover:bg-surface-variant sm:w-auto"
+              onClick={handleExportLedger}
+              type="button"
+            >
               <span className="material-symbols-outlined">download</span>
               Export Data
             </button>
-            <button className="flex w-full sm:w-auto justify-center items-center gap-2 px-6 py-3 bg-primary text-on-primary font-semibold rounded-lg hover:opacity-90 transition-opacity">
-              <span className="material-symbols-outlined">analytics</span>
-              Advanced Analytics
-            </button>
+            {!isAuthenticated ? (
+              <Link
+                className="flex w-full items-center justify-center gap-2 rounded-lg bg-primary px-6 py-3 font-semibold text-on-primary transition-opacity hover:opacity-90 sm:w-auto"
+                to={SIGN_IN_ROUTE}
+              >
+                <span className="material-symbols-outlined">login</span>
+                Sign In for Ledger Access
+              </Link>
+            ) : null}
           </div>
         </div>
       </header>
-      <section className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-12">
-        <div className="bg-surface-container-lowest p-6 md:p-8 rounded-xl flex flex-col justify-between min-h-[180px]">
-          <div className="flex justify-between items-start">
-            <span className="text-label-md uppercase tracking-wider font-bold text-secondary">
-              Total Allocations
-            </span>
-            <span className="material-symbols-outlined text-primary-container">inventory_2</span>
-          </div>
-          <div className="mt-6 md:mt-0">
-            <div className="text-[3rem] md:text-[3.5rem] font-black tracking-tighter text-primary leading-none">
-              4.2<span className="text-2xl font-bold ml-1">MT</span>
-            </div>
-            <div className="flex items-center gap-1 text-green-700 text-sm font-medium mt-2 md:mt-4">
-              <span className="material-symbols-outlined text-xs">trending_up</span>
-              <span>12.4% vs last cycle</span>
-            </div>
-          </div>
+
+      {!isAuthenticated ? (
+        <EmptyState
+          title="Sign in to access the live ledger"
+          description="The transaction ledger is protected by the backend now. Sign in to review the transactions visible to your account role."
+          icon="shield_lock"
+        />
+      ) : isLoading ? (
+        <PageLoader
+          title="Loading transaction ledger..."
+          description="We are retrieving the latest transaction records allowed for your account."
+        />
+      ) : error ? (
+        <div className="rounded-2xl border border-red-100 bg-red-50 p-6 text-sm font-medium text-error shadow-sm">
+          {error}
         </div>
-        <div className="bg-primary text-on-primary p-6 md:p-8 rounded-xl flex flex-col justify-between min-h-[180px] shadow-lg">
-          <div className="flex justify-between items-start">
-            <span className="text-label-md uppercase tracking-wider font-bold opacity-80">
-              Distributions Today
-            </span>
-            <span className="material-symbols-outlined opacity-80">local_shipping</span>
-          </div>
-          <div className="mt-6 md:mt-0">
-            <div className="text-[3rem] md:text-[3.5rem] font-black tracking-tighter leading-none">
-              84.9<span className="text-2xl font-bold ml-1">K</span>
+      ) : (
+        <>
+          <section className="mb-12 grid grid-cols-1 gap-6 md:grid-cols-3">
+            <div className="flex min-h-[180px] flex-col justify-between rounded-xl bg-surface-container-lowest p-6 md:p-8">
+              <div className="flex items-start justify-between">
+                <span className="text-label-md font-bold uppercase tracking-wider text-secondary">
+                  Ledger Records
+                </span>
+                <span className="material-symbols-outlined text-primary-container">receipt_long</span>
+              </div>
+              <div className="mt-6 md:mt-0">
+                <div className="text-[3rem] font-black leading-none tracking-tighter text-primary md:text-[3.5rem]">
+                  {stats.totalTransactions}
+                </div>
+                <div className="mt-2 flex items-center gap-1 text-sm font-medium text-green-700 md:mt-4">
+                  <span className="material-symbols-outlined text-xs">database</span>
+                  <span>Live transaction records</span>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-1 opacity-80 text-sm font-medium mt-2 md:mt-4">
-              <span className="material-symbols-outlined text-xs">update</span>
-              <span>Updated 2 minutes ago</span>
+
+            <div className="flex min-h-[180px] flex-col justify-between rounded-xl bg-primary p-6 text-on-primary shadow-lg md:p-8">
+              <div className="flex items-start justify-between">
+                <span className="text-label-md font-bold uppercase tracking-wider opacity-80">
+                  Transactions Today
+                </span>
+                <span className="material-symbols-outlined opacity-80">today</span>
+              </div>
+              <div className="mt-6 md:mt-0">
+                <div className="text-[3rem] font-black leading-none tracking-tighter md:text-[3.5rem]">
+                  {stats.todayTransactions}
+                </div>
+                <div className="mt-2 flex items-center gap-1 text-sm font-medium opacity-80 md:mt-4">
+                  <span className="material-symbols-outlined text-xs">update</span>
+                  <span>Calculated from current ledger scope</span>
+                </div>
+              </div>
             </div>
-          </div>
-        </div>
-        <div className="bg-secondary-container p-6 md:p-8 rounded-xl flex flex-col justify-between min-h-[180px]">
-          <div className="flex justify-between items-start">
-            <span className="text-label-md uppercase tracking-wider font-bold text-on-secondary-container">
-              Leakage Prevented
-            </span>
-            <span className="material-symbols-outlined text-on-secondary-container">verified_user</span>
-          </div>
-          <div className="mt-6 md:mt-0">
-            <div className="text-[3rem] md:text-[3.5rem] font-black tracking-tighter text-on-secondary-container leading-none">
-              15.2<span className="text-2xl font-bold ml-1">%</span>
+
+            <div className="flex min-h-[180px] flex-col justify-between rounded-xl bg-secondary-container p-6 md:p-8">
+              <div className="flex items-start justify-between">
+                <span className="text-label-md font-bold uppercase tracking-wider text-on-secondary-container">
+                  Quantity Recorded
+                </span>
+                <span className="material-symbols-outlined text-on-secondary-container">inventory_2</span>
+              </div>
+              <div className="mt-6 md:mt-0">
+                <div className="text-[3rem] font-black leading-none tracking-tighter text-on-secondary-container md:text-[3.5rem]">
+                  {stats.totalQuantity.toFixed(1)}
+                  <span className="ml-1 text-2xl font-bold">KG</span>
+                </div>
+                <div className="mt-2 flex items-center gap-1 text-sm font-medium text-on-secondary-container md:mt-4">
+                  <span className="material-symbols-outlined text-xs">storefront</span>
+                  <span>{stats.uniqueShops} shop ledger sources</span>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-1 text-on-secondary-container text-sm font-medium mt-2 md:mt-4">
-              <span className="material-symbols-outlined text-xs">shield</span>
-              <span>Biometric validation enforced</span>
-            </div>
-          </div>
-        </div>
-      </section>
-      <section className="bg-surface-container-low rounded-2xl overflow-hidden">
-        <div className="px-4 md:px-8 py-6 flex flex-col md:flex-row md:items-center justify-between gap-4">
-          <div className="relative flex-1 max-w-full md:max-w-md">
-            <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline">
-              search
-            </span>
-            <input
-              className="w-full pl-12 pr-4 py-3 bg-surface-container-lowest border-none rounded-lg focus:ring-2 focus:ring-primary text-on-surface"
-              placeholder="Search Transaction ID..."
-              type="text"
-            />
-          </div>
-          <div className="flex flex-col sm:flex-row items-stretch sm:items-center gap-3">
-            <div className="flex items-center justify-between gap-2 bg-surface-container px-4 py-2 rounded-lg">
-              <span className="text-sm font-bold text-secondary uppercase tracking-tight">
-                Commodity:
-              </span>
-              <select className="bg-transparent border-none text-sm font-bold text-primary focus:ring-0 cursor-pointer">
-                <option>All Types</option>
-                <option>Wheat</option>
-                <option>Rice</option>
-                <option>Coarse Grains</option>
-              </select>
-            </div>
-            <div className="flex items-center justify-between gap-2 bg-surface-container px-4 py-2 rounded-lg">
-              <span className="text-sm font-bold text-secondary uppercase tracking-tight">Status:</span>
-              <select className="bg-transparent border-none text-sm font-bold text-primary focus:ring-0 cursor-pointer">
-                <option>Verified</option>
-                <option>Pending</option>
-                <option>Flagged</option>
-              </select>
-            </div>
-          </div>
-        </div>
-        <div className="overflow-x-auto w-full">
-          <table className="w-full text-left border-collapse min-w-[800px]">
-            <thead>
-              <tr className="bg-surface-container-high border-none">
-                <th className="px-4 md:px-8 py-4 text-label-md uppercase tracking-widest font-bold text-secondary">
-                  Transaction ID
-                </th>
-                <th className="px-4 md:px-6 py-4 text-label-md uppercase tracking-widest font-bold text-secondary">
-                  Location (FPS)
-                </th>
-                <th className="px-4 md:px-6 py-4 text-label-md uppercase tracking-widest font-bold text-secondary">
-                  Commodity Type
-                </th>
-                <th className="px-4 md:px-6 py-4 text-label-md uppercase tracking-widest font-bold text-secondary">
-                  Quantity
-                </th>
-                <th className="px-4 md:px-6 py-4 text-label-md uppercase tracking-widest font-bold text-secondary">
-                  Timestamp
-                </th>
-                <th className="px-4 md:px-8 py-4 text-label-md uppercase tracking-widest font-bold text-secondary">
-                  Verification
-                </th>
-              </tr>
-            </thead>
-            <tbody className="divide-y-0">
-              <tr className="bg-surface-container-lowest hover:bg-primary-fixed transition-colors group">
-                <td className="px-4 md:px-8 py-6 font-mono text-sm font-bold text-primary">#TX-98231-A4</td>
-                <td className="px-4 md:px-6 py-6">
-                  <div className="font-bold text-on-surface">FPS-442 (Old Delhi North)</div>
-                  <div className="text-xs text-secondary">ID: 09923842</div>
-                </td>
-                <td className="px-4 md:px-6 py-6">
-                  <span className="px-3 py-1 bg-secondary-container text-on-secondary-container text-xs font-bold rounded-full">
-                    Rice (Premium)
+          </section>
+
+          <section className="overflow-hidden rounded-2xl bg-surface-container-low">
+            <div className="flex flex-col justify-between gap-4 px-4 py-6 md:flex-row md:items-center md:px-8">
+              <div className="relative max-w-full flex-1 md:max-w-md">
+                <span className="material-symbols-outlined absolute left-4 top-1/2 -translate-y-1/2 text-outline">
+                  search
+                </span>
+                <input
+                  className="w-full rounded-lg border-none bg-surface-container-lowest py-3 pl-12 pr-4 text-on-surface focus:ring-2 focus:ring-primary"
+                  onChange={(event) => setSearchTerm(event.target.value)}
+                  placeholder="Search by receipt, shop, or commodity..."
+                  type="text"
+                  value={searchTerm}
+                />
+              </div>
+              <div className="flex flex-col items-stretch gap-3 sm:flex-row sm:items-center">
+                <div className="flex items-center justify-between gap-2 rounded-lg bg-surface-container px-4 py-2">
+                  <span className="text-sm font-bold uppercase tracking-tight text-secondary">
+                    Commodity:
                   </span>
-                </td>
-                <td className="px-4 md:px-6 py-6 font-bold text-primary">35.00 KG</td>
-                <td className="px-4 md:px-6 py-6 text-sm text-secondary">24 Oct 2024, 14:22:10</td>
-                <td className="px-4 md:px-8 py-6">
-                  <div className="flex items-center gap-2 text-green-700 font-bold text-sm">
-                    <span className="material-symbols-outlined text-lg filled-star-check">check_circle</span>
-                    Biometric Success
-                  </div>
-                </td>
-              </tr>
-              <tr className="bg-surface-container-low hover:bg-primary-fixed transition-colors">
-                <td className="px-4 md:px-8 py-6 font-mono text-sm font-bold text-primary">#TX-98231-A5</td>
-                <td className="px-4 md:px-6 py-6">
-                  <div className="font-bold text-on-surface">FPS-102 (Mumbai Central)</div>
-                  <div className="text-xs text-secondary">ID: 11029384</div>
-                </td>
-                <td className="px-4 md:px-6 py-6">
-                  <span className="px-3 py-1 bg-secondary-container text-on-secondary-container text-xs font-bold rounded-full">
-                    Wheat
-                  </span>
-                </td>
-                <td className="px-4 md:px-6 py-6 font-bold text-primary">12.50 KG</td>
-                <td className="px-4 md:px-6 py-6 text-sm text-secondary">24 Oct 2024, 14:19:45</td>
-                <td className="px-4 md:px-8 py-6">
-                  <div className="flex items-center gap-2 text-green-700 font-bold text-sm">
-                    <span className="material-symbols-outlined text-lg filled-star-check">check_circle</span>
-                    OTP Verified
-                  </div>
-                </td>
-              </tr>
-              <tr className="bg-surface-container-lowest hover:bg-primary-fixed transition-colors">
-                <td className="px-4 md:px-8 py-6 font-mono text-sm font-bold text-primary">#TX-98231-A6</td>
-                <td className="px-4 md:px-6 py-6">
-                  <div className="font-bold text-on-surface">FPS-882 (Bengaluru East)</div>
-                  <div className="text-xs text-secondary">ID: 55439281</div>
-                </td>
-                <td className="px-4 md:px-6 py-6">
-                  <span className="px-3 py-1 bg-secondary-container text-on-secondary-container text-xs font-bold rounded-full">
-                    Coarse Grains
-                  </span>
-                </td>
-                <td className="px-4 md:px-6 py-6 font-bold text-primary">05.00 KG</td>
-                <td className="px-4 md:px-6 py-6 text-sm text-secondary">24 Oct 2024, 14:15:30</td>
-                <td className="px-4 md:px-8 py-6">
-                  <div className="flex items-center gap-2 text-blue-700 font-bold text-sm">
-                    <span className="material-symbols-outlined text-lg">pending_actions</span>
-                    Awaiting Offline Sync
-                  </div>
-                </td>
-              </tr>
-              <tr className="bg-surface-container-low hover:bg-primary-fixed transition-colors">
-                <td className="px-4 md:px-8 py-6 font-mono text-sm font-bold text-primary">#TX-98231-A7</td>
-                <td className="px-4 md:px-6 py-6">
-                  <div className="font-bold text-on-surface">FPS-012 (Chennai Port)</div>
-                  <div className="text-xs text-secondary">ID: 88726351</div>
-                </td>
-                <td className="px-4 md:px-6 py-6">
-                  <span className="px-3 py-1 bg-secondary-container text-on-secondary-container text-xs font-bold rounded-full">
-                    Rice (Premium)
-                  </span>
-                </td>
-                <td className="px-4 md:px-6 py-6 font-bold text-primary">42.00 KG</td>
-                <td className="px-4 md:px-6 py-6 text-sm text-secondary">24 Oct 2024, 14:12:12</td>
-                <td className="px-4 md:px-8 py-6">
-                  <div className="flex items-center gap-2 text-green-700 font-bold text-sm">
-                    <span className="material-symbols-outlined text-lg filled-star-check">check_circle</span>
-                    Biometric Success
-                  </div>
-                </td>
-              </tr>
-            </tbody>
-          </table>
-        </div>
-        <div className="px-4 md:px-8 py-6 bg-surface-container flex flex-col md:flex-row items-center justify-between gap-4">
-          <span className="text-sm text-secondary font-medium text-center">
-            Showing 1 to 4 of 24,912 transactions
-          </span>
-          <div className="flex items-center gap-2 flex-wrap justify-center">
-            <button className="w-10 h-10 flex items-center justify-center rounded-lg bg-surface-container-lowest text-outline hover:text-primary transition-colors">
-              <span className="material-symbols-outlined">chevron_left</span>
-            </button>
-            <button className="w-10 h-10 flex items-center justify-center rounded-lg bg-primary text-on-primary font-bold">
-              1
-            </button>
-            <button className="w-10 h-10 flex items-center justify-center rounded-lg bg-surface-container-lowest text-secondary font-bold hover:bg-surface-variant transition-colors">
-              2
-            </button>
-            <button className="w-10 h-10 flex items-center justify-center rounded-lg bg-surface-container-lowest text-secondary font-bold hover:bg-surface-variant transition-colors">
-              3
-            </button>
-            <button className="w-10 h-10 flex items-center justify-center rounded-lg bg-surface-container-lowest text-outline hover:text-primary transition-colors">
-              <span className="material-symbols-outlined">chevron_right</span>
-            </button>
-          </div>
-        </div>
-      </section>
-      <section className="mt-12 p-1 bg-gradient-to-r from-primary to-primary-container rounded-2xl overflow-hidden shadow-xl">
-        <div className="bg-surface-container-lowest p-8 md:p-12 flex flex-col md:flex-row items-center justify-between gap-8 rounded-[0.9rem]">
-          <div className="flex-1">
-            <h3 className="text-3xl font-black text-primary tracking-tight mb-4">
-              Zero Trust Distribution Framework
-            </h3>
-            <p className="text-secondary leading-relaxed">
-              Every transaction shown above is cryptographically signed and stored on the National
-              Transparency Grid. This data is available for independent audit by civilian oversight
-              bodies via our public API.
-            </p>
-          </div>
-          <div className="flex flex-col gap-4 min-w-[200px]">
-            <div className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-primary filled-star-check">encrypted</span>
-              <span className="text-sm font-bold uppercase tracking-widest text-secondary">
-                AES-256 Encrypted
-              </span>
+                  <select
+                    className="cursor-pointer border-none bg-transparent text-sm font-bold text-primary focus:ring-0"
+                    onChange={(event) => setSelectedCommodity(event.target.value)}
+                    value={selectedCommodity}
+                  >
+                    {commodityOptions.map((option) => (
+                      <option key={option}>{option}</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-primary filled-star-check">database</span>
-              <span className="text-sm font-bold uppercase tracking-widest text-secondary">
-                Immutable Log
-              </span>
+
+            <div className="w-full overflow-x-auto">
+              <table className="min-w-[800px] w-full border-collapse text-left">
+                <thead>
+                  <tr className="border-none bg-surface-container-high">
+                    <th className="px-4 py-4 text-label-md font-bold uppercase tracking-widest text-secondary md:px-8">
+                      Transaction ID
+                    </th>
+                    <th className="px-4 py-4 text-label-md font-bold uppercase tracking-widest text-secondary md:px-6">
+                      Location (FPS)
+                    </th>
+                    <th className="px-4 py-4 text-label-md font-bold uppercase tracking-widest text-secondary md:px-6">
+                      Commodity Type
+                    </th>
+                    <th className="px-4 py-4 text-label-md font-bold uppercase tracking-widest text-secondary md:px-6">
+                      Quantity
+                    </th>
+                    <th className="px-4 py-4 text-label-md font-bold uppercase tracking-widest text-secondary md:px-6">
+                      Timestamp
+                    </th>
+                    <th className="px-4 py-4 text-label-md font-bold uppercase tracking-widest text-secondary md:px-8">
+                      Verification
+                    </th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {filteredTransactions.length ? (
+                    filteredTransactions.map((transaction, index) => {
+                      const verification = getVerificationTone(transaction.receiptId)
+                      const rowTone = index % 2 === 0 ? 'bg-surface-container-lowest' : 'bg-surface-container-low'
+
+                      return (
+                        <tr key={transaction._id} className={`${rowTone} group transition-colors hover:bg-primary-fixed`}>
+                          <td className="px-4 py-6 font-mono text-sm font-bold text-primary md:px-8">
+                            {transaction.receiptId || transaction._id}
+                          </td>
+                          <td className="px-4 py-6 md:px-6">
+                            <div className="font-bold text-on-surface">{transaction.shop?.name || 'Unknown Shop'}</div>
+                            <div className="text-xs text-secondary">
+                              {transaction.shop?.location || 'Location unavailable'}
+                            </div>
+                          </td>
+                          <td className="px-4 py-6 md:px-6">
+                            <div className="flex flex-wrap gap-2">
+                              {(transaction.itemsCollected || []).map((item, itemIndex) => (
+                                <span
+                                  key={`${transaction._id}-${item.itemType}-${itemIndex}`}
+                                  className="rounded-full bg-secondary-container px-3 py-1 text-xs font-bold text-on-secondary-container"
+                                >
+                                  {item.itemType}
+                                </span>
+                              ))}
+                            </div>
+                          </td>
+                          <td className="px-4 py-6 font-bold text-primary md:px-6">
+                            {(transaction.itemsCollected || [])
+                              .reduce((sum, item) => sum + (Number(item.quantity) || 0), 0)
+                              .toFixed(1)} KG
+                          </td>
+                          <td className="px-4 py-6 text-sm text-secondary md:px-6">
+                            {formatDateTime(transaction.transactionDate)}
+                          </td>
+                          <td className="px-4 py-6 md:px-8">
+                            <div className={`flex items-center gap-2 text-sm font-bold ${verification.className}`}>
+                              <span className="material-symbols-outlined text-lg">{verification.icon}</span>
+                              {verification.label}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })
+                  ) : (
+                    <tr>
+                      <td className="px-4 py-8 md:px-8" colSpan={6}>
+                        <EmptyState
+                          title="No matching transactions found"
+                          description="Try adjusting the search term or commodity filter to see more ledger records."
+                          icon="receipt_long"
+                        />
+                      </td>
+                    </tr>
+                  )}
+                </tbody>
+              </table>
             </div>
-            <div className="flex items-center gap-3">
-              <span className="material-symbols-outlined text-primary filled-star-check">public</span>
-              <span className="text-sm font-bold uppercase tracking-widest text-secondary">
-                Global Sync
-              </span>
-            </div>
-          </div>
-        </div>
-      </section>
+          </section>
+        </>
+      )}
     </main>
   )
 }

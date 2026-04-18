@@ -1,20 +1,20 @@
-const asyncHandler = require('express-async-handler');
 const Shop = require('../models/Shop');
 const User = require('../models/User');
 const { isDealerRole } = require('../utils/roles');
+const auditService = require('../services/auditService');
 
 // @desc    Get all shops
 // @route   GET /api/shops
 // @access  Public
-const getShops = asyncHandler(async (req, res) => {
+const getShops = async (req, res) => {
   const shops = await Shop.find({}).populate('dealerId', 'name phone role');
   res.json(shops);
-});
+};
 
 // @desc    Assign a dealer to a shop
 // @route   PUT /api/shops/:id/assign-dealer
 // @access  Private/Admin
-const assignDealerToShop = asyncHandler(async (req, res) => {
+const assignDealerToShop = async (req, res) => {
   const { dealerId } = req.body;
 
   if (!dealerId) {
@@ -55,9 +55,19 @@ const assignDealerToShop = asyncHandler(async (req, res) => {
   await shop.save();
 
   const updatedShop = await Shop.findById(shop._id).populate('dealerId', 'name phone role');
+  auditService.logAction({
+    user: req.user,
+    action: 'ASSIGN_DEALER',
+    metadata: {
+      shopId: updatedShop._id,
+      shopCode: updatedShop.shopId,
+      dealerId: dealer._id,
+    },
+    req,
+  });
 
   res.json(updatedShop);
-});
+};
 
 module.exports = {
   getShops,

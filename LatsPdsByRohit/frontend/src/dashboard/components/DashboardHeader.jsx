@@ -1,44 +1,64 @@
 import { Link } from 'react-router-dom'
-import { DASHBOARD_OVERVIEW_ROUTE } from '../../constants/routes'
+import toast from 'react-hot-toast'
+import { useAuth } from '../../context/AuthContext'
+import { DASHBOARD_OVERVIEW_ROUTE, DASHBOARD_PROFILE_ROUTE } from '../../constants/routes'
+import { normalizeRole } from '../../utils/roles'
 
 export default function DashboardHeader({ routeTitle }) {
+  const { user } = useAuth()
+  const normalizedRole = normalizeRole(user?.role)
+  const roleLabel = normalizedRole.charAt(0).toUpperCase() + normalizedRole.slice(1)
+  const userName = user?.name || 'Verified User'
+  const avatarSeed = encodeURIComponent(userName)
+
   return (
-    <header className="flex h-20 items-center justify-between border-b border-surface bg-surface-container-lowest px-8">
+    <header className="border-b border-slate-200/70 bg-white/80 px-6 py-5 backdrop-blur md:px-8">
       <div className="flex items-center gap-8">
-        <h1 className="text-xl font-bold text-on-surface">{routeTitle || 'Ration Transparency System'}</h1>
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-[0.18em] text-primary">Dashboard Workspace</p>
+          <h1 className="text-xl font-bold text-on-surface">{routeTitle || 'Ration Transparency System'}</h1>
+        </div>
         <nav className="hidden space-x-6 text-sm font-semibold text-on-surface-variant md:block">
-          <Link to={DASHBOARD_OVERVIEW_ROUTE} className="text-primary border-b-2 border-primary pb-[26px]">Overview</Link>
-          <Link to={DASHBOARD_OVERVIEW_ROUTE} className="hover:text-on-surface transition-colors pb-[26px]">Notifications</Link>
+          <Link to={DASHBOARD_OVERVIEW_ROUTE} className="border-b-2 border-primary pb-[26px] text-primary">Overview</Link>
+          <Link to={DASHBOARD_OVERVIEW_ROUTE} className="pb-[26px] transition-colors hover:text-on-surface">Notifications</Link>
         </nav>
       </div>
 
       <div className="flex items-center gap-4">
-        <div className="hidden items-center rounded-full bg-surface-container px-3 py-2 md:flex">
+        <div className="hidden items-center rounded-full border border-slate-200 bg-slate-50 px-3 py-2 md:flex">
           <span className="material-symbols-outlined text-on-surface-variant text-[18px]">search</span>
           <input
             type="text"
-            placeholder="Search grievance records..."
+            placeholder="Search dashboard records..."
             className="w-48 bg-transparent px-2 text-sm text-on-surface outline-none placeholder:text-on-surface-variant"
           />
         </div>
 
-        <button className="flex h-10 w-10 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface transition-colors">
+        <button
+          className="flex h-10 w-10 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface"
+          onClick={() => toast('Notifications center can be connected to backend events next.')}
+          type="button"
+        >
           <span className="material-symbols-outlined filled-star">notifications</span>
         </button>
-        <button className="flex h-10 w-10 items-center justify-center rounded-full text-on-surface-variant hover:bg-surface transition-colors">
+        <button
+          className="flex h-10 w-10 items-center justify-center rounded-full text-on-surface-variant transition-colors hover:bg-surface"
+          onClick={() => toast('Use the sidebar and profile page to manage your workspace.')}
+          type="button"
+        >
           <span className="material-symbols-outlined filled-star">help</span>
         </button>
-        <button className="ml-2 flex items-center gap-3">
+        <Link className="ml-2 flex items-center gap-3 rounded-full border border-slate-200 bg-white px-2 py-2 shadow-sm" to={DASHBOARD_PROFILE_ROUTE}>
           <div className="hidden text-right md:block">
-            <div className="text-xs font-bold text-on-surface">Ananya Sharma</div>
-            <div className="text-[10px] uppercase tracking-widest text-on-surface-variant">User</div>
+            <div className="text-xs font-bold text-on-surface">{userName}</div>
+            <div className="text-[10px] uppercase tracking-[0.16em] text-on-surface-variant">{roleLabel}</div>
           </div>
           <img
-            src="https://api.dicebear.com/7.x/avataaars/svg?seed=Ananya"
+            src={`https://api.dicebear.com/7.x/avataaars/svg?seed=${avatarSeed}`}
             alt="Profile"
             className="h-10 w-10 rounded-full border-2 border-surface-container object-cover"
           />
-        </button>
+        </Link>
       </div>
     </header>
   )

@@ -1,115 +1,97 @@
-const asyncHandler = require('express-async-handler');
-const User = require('../models/User');
-const generateToken = require('../utils/generateToken');
-const {
-  normalizeRole,
-  isAdminRole,
-  isDealerRole,
-  getStoredRoles,
-} = require('../utils/roles');
-
-function canManageTransactions(role) {
-  return isAdminRole(role) || isDealerRole(role);
-}
+const userService = require('../services/userService');
+const auditService = require('../services/auditService');
 
 // @desc    Register a new user
 // @route   POST /api/auth/register
 // @access  Public
-const registerUser = asyncHandler(async (req, res) => {
-  const { name, phone, password, role, rationCardNumber, aadharNumber } = req.body;
-
-  const userExists = await User.findOne({ phone });
-
-  if (userExists) {
-    res.status(400);
-    throw new Error('User already exists');
+const registerUser = async (req, res) => {
+  try {
+    const user = await userService.registerUser(req.body);
+    res.status(201).json(user);
+  } catch (error) {
+    res.status(error.statusCode || 500);
+    throw error;
   }
-
-  const user = await User.create({
-    name,
-    phone,
-    password,
-    role: role || 'user',
-    rationCardNumber,
-    aadharNumber
-  });
-
-  if (user) {
-    res.status(201).json({
-      _id: user._id,
-      name: user.name,
-      phone: user.phone,
-      role: normalizeRole(user.role),
-      token: generateToken(user._id),
-    });
-  } else {
-    res.status(400);
-    throw new Error('Invalid user data');
-  }
-});
+};
 
 // @desc    Auth user & get token
 // @route   POST /api/auth/login
 // @access  Public
-const authUser = asyncHandler(async (req, res) => {
-  const { phone, password } = req.body;
-
-  const user = await User.findOne({ phone });
-
-  if (user && (await user.matchPassword(password))) {
-    res.json({
-      _id: user._id,
-      name: user.name,
-      phone: user.phone,
-      role: normalizeRole(user.role),
-      token: generateToken(user._id),
+const authUser = async (req, res) => {
+  try {
+    const user = await userService.authenticateUser(req.body);
+    auditService.logAction({
+      user,
+      action: 'LOGIN',
+      metadata: {
+        phone: user.phone,
+      },
+      req,
     });
-  } else {
-    res.status(401);
-    throw new Error('Invalid phone or password');
+    res.json(user);
+  } catch (error) {
+    res.status(error.statusCode || 500);
+    throw error;
   }
-});
+};
+
+// @desc    Refresh access token
+// @route   POST /api/auth/refresh-token
+// @access  Public
+const refreshToken = async (req, res) => {
+  try {
+    const authPayload = await userService.refreshUserToken(req.body);
+    res.json(authPayload);
+  } catch (error) {
+    res.status(error.statusCode || 500);
+    throw error;
+  }
+};
+
+// @desc    Logout user
+// @route   POST /api/auth/logout
+// @access  Public
+const logoutUser = async (req, res) => {
+  try {
+    const result = await userService.logoutUser(req.body);
+    res.json(result);
+  } catch (error) {
+    res.status(error.statusCode || 500);
+    throw error;
+  }
+};
 
 // @desc    Get user profile
 // @route   GET /api/users/profile
 // @access  Private
-const getUserProfile = asyncHandler(async (req, res) => {
-  const user = await User.findById(req.user._id);
-
-  if (user) {
-    res.json({
-      _id: user._id,
-      name: user.name,
-      phone: user.phone,
-      role: normalizeRole(user.role),
-      rationCardNumber: user.rationCardNumber,
-      aadharNumber: user.aadharNumber,
-    });
-  } else {
-    res.status(404);
-    throw new Error('User not found');
+const getUserProfile = async (req, res) => {
+  try {
+    const user = await userService.getUserProfile(req.user._id);
+    res.json(user);
+  } catch (error) {
+    res.status(error.statusCode || 500);
+    throw error;
   }
-});
+};
 
 // @desc    Get eligible users for dealer transactions
 // @route   GET /api/users/customers
 // @access  Private/Dealer
-const getCustomers = asyncHandler(async (req, res) => {
-  if (!canManageTransactions(req.user.role)) {
-    res.status(403);
-    throw new Error('Only dealers can access customer records');
+const getCustomers = async (req, res) => {
+  try {
+    const customers = await userService.getCustomers(req.user);
+    res.json(customers);
+  } catch (error) {
+    res.status(error.statusCode || 500);
+    throw error;
   }
-
-  const customers = await User.find({ role: { $in: getStoredRoles('user') } })
-    .select('_id name phone rationCardNumber')
-    .sort({ name: 1 });
-
-  res.json(customers);
-});
+};
 
 module.exports = {
   registerUser,
   authUser,
+  refreshToken,
+  logoutUser,
   getUserProfile,
   getCustomers,
 };
