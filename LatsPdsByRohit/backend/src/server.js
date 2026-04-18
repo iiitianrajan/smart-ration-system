@@ -12,7 +12,7 @@ const logger = require('./utils/logger');
 connectDB();
 
 const app = express();
-const allowedOrigins = (env.FRONTEND_URL || '')
+const allowedOrigins = (env.FRONTEND_URL || 'https://smart-ration-system.vercel.app')
   .split(',')
   .map((origin) => origin.trim())
   .filter(Boolean);
