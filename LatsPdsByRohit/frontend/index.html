@@ -1,0 +1,105 @@
+<!DOCTYPE html>
+<html class="light" lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta content="width=device-width, initial-scale=1.0" name="viewport" />
+    <title>RationGuard | National Smart Ration Transparency Portal</title>
+    <script src="https://cdn.tailwindcss.com?plugins=forms,container-queries"></script>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Public+Sans:ital,wght@0,100..900;1,100..900&amp;display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:wght,FILL@100..700,0..1&amp;display=swap"
+      rel="stylesheet"
+    />
+    <script id="tailwind-config">
+      tailwind.config = {
+        darkMode: 'class',
+        theme: {
+          extend: {
+            colors: {
+                'on-tertiary': '#ffffff',
+                tertiary: '#001d46',
+                'tertiary-fixed-dim': '#adc7ff',
+                'outline-variant': '#c3c6d1',
+                'surface-container': '#eceef0',
+                'on-error': '#ffffff',
+                'secondary-container': '#d5e3fc',
+                'surface-tint': '#3a5f94',
+                'surface-container-lowest': '#ffffff',
+                'on-secondary-fixed': '#0d1c2e',
+                'primary-fixed-dim': '#a7c8ff',
+                'tertiary-container': '#00316e',
+                'primary-container': '#003366',
+                'surface-bright': '#f7f9fb',
+                'surface-container-highest': '#e0e3e5',
+                'on-secondary-container': '#57657a',
+                'on-tertiary-fixed-variant': '#004493',
+                'surface-container-low': '#f2f4f6',
+                'tertiary-fixed': '#d8e2ff',
+                'surface-dim': '#d8dadc',
+                background: '#f7f9fb',
+                primary: '#001e40',
+                'secondary-fixed': '#d5e3fc',
+                outline: '#737780',
+                'on-tertiary-container': '#629aff',
+                error: '#ba1a1a',
+                'on-tertiary-fixed': '#001a41',
+                'on-primary': '#ffffff',
+                'inverse-surface': '#2d3133',
+                'error-container': '#ffdad6',
+                secondary: '#515f74',
+                'surface-variant': '#e0e3e5',
+                'on-error-container': '#93000a',
+                'on-secondary': '#ffffff',
+                surface: '#f7f9fb',
+                'on-surface-variant': '#43474f',
+                'on-primary-fixed-variant': '#1f477b',
+                'secondary-fixed-dim': '#b9c7df',
+                'on-secondary-fixed-variant': '#3a485b',
+                'surface-container-high': '#e6e8ea',
+                'inverse-on-surface': '#eff1f3',
+                'on-background': '#191c1e',
+                'on-primary-fixed': '#001b3c',
+                'inverse-primary': '#a7c8ff',
+                'on-surface': '#191c1e',
+                'on-primary-container': '#799dd6',
+                'primary-fixed': '#d5e3ff',
+            },
+            borderRadius: {
+                DEFAULT: '0.125rem',
+                lg: '0.25rem',
+                xl: '0.5rem',
+                full: '0.75rem',
+            },
+            fontFamily: {
+                headline: ['Public Sans'],
+                body: ['Public Sans'],
+                label: ['Public Sans'],
+            },
+          },
+        },
+      }
+    </script>
+    <style>
+      body {
+        font-family: 'Public Sans', sans-serif;
+      }
+      .material-symbols-outlined {
+        font-display: block;
+      }
+      .no-scrollbar::-webkit-scrollbar {
+        display: none;
+      }
+    </style>
+  </head>
+  <body class="bg-background text-on-background antialiased selection:bg-secondary-container">
+    <div id="root"></div>
+    <script type="module" src="/src/main.jsx"></script>
+  </body>
+</html>
